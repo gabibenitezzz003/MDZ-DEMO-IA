@@ -1,3 +1,4 @@
+import { mergeFieldsWithConflicts } from "@/lib/field-merge";
 import { normalizeRutFields } from "@/lib/rut-conversation";
 
 export type MemoryTurn = { role: "user" | "assistant"; text: string };
@@ -147,13 +148,24 @@ export function mergePendingFields(
   fields: Record<string, string>
 ) {
   const current = getMemory(sessionId);
-  const pendingFields = normalizeRutFields({
-    ...current.pendingFields,
-    ...fields,
-  });
-  const next = { ...current, pendingFields };
+  const { merged } = mergeFieldsWithConflicts(current.pendingFields, fields);
+  const next = { ...current, pendingFields: normalizeRutFields(merged) };
   memory.set(sessionId, next);
   return next;
+}
+
+export function mergePendingFieldsDetailed(
+  sessionId: string,
+  fields: Record<string, string>
+) {
+  const current = getMemory(sessionId);
+  const result = mergeFieldsWithConflicts(current.pendingFields, fields);
+  const next = {
+    ...current,
+    pendingFields: normalizeRutFields(result.merged),
+  };
+  memory.set(sessionId, next);
+  return { memory: next, ...result };
 }
 
 export function bumpAckSalt(sessionId: string) {

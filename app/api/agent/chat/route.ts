@@ -7,6 +7,7 @@ import {
   clearSession,
   getMemory,
   mergePendingFields,
+  mergePendingFieldsDetailed,
   mergeSessionFacts,
   popPreviousSection,
   setAwaitingFill,
@@ -40,6 +41,7 @@ import {
 import { buildSectionGuide } from "@/lib/section-guide";
 import { wantsOdkHelp } from "@/lib/spoken-fields";
 import { humanizeSpoken, prepareTourNarration } from "@/lib/spoken-style";
+import { conflictSpoken } from "@/lib/field-merge";
 import { wantsOpenResource } from "@/lib/open-resource";
 import { correctSpeechTranscript } from "@/lib/stt-correct";
 import type { AgentEvent } from "@/lib/types";
@@ -137,6 +139,7 @@ async function withVoice(spoken: string, extra: Record<string, unknown>) {
   let audioBase64: string | undefined;
   let audioMime: string | undefined;
   try {
+    // Nunca bloquear la respuesta por TTS: si falla o tarda, igual devolvemos texto.
     const audio = await synthesizeSpeech(text, {
       quality: isTour ? "narration" : "chat",
     });
@@ -389,11 +392,15 @@ async function handleChat(req: NextRequest) {
     mem.rutMode === "collecting" ||
     mem.rutMode === "confirm";
 
+  let fieldConflictNote = "";
   if (
     Object.keys(localFields).length &&
     (intentIsRut || hasStrongRutFields || recallPrior)
   ) {
-    mergePendingFields(sessionId, localFields);
+    const merged = mergePendingFieldsDetailed(sessionId, localFields);
+    if (merged.conflicts.length) {
+      fieldConflictNote = conflictSpoken(merged.conflicts);
+    }
     intent.extractedFields = {
       ...normalizeRutFields(intent.extractedFields ?? {}),
       ...localFields,
@@ -410,8 +417,16 @@ async function handleChat(req: NextRequest) {
   }
 
   // Local fill preference wins over Gemini (often omits fillMode).
+  // "seguimos" suelto NO dispara auto-fill (solo en confirm / checklist).
   const localFill = detectFillPreference(originalText);
-  if (localFill && !intent.fillMode) {
+  if (
+    localFill &&
+    !intent.fillMode &&
+    (localFill !== "auto" ||
+      mem.awaitingFillConfirm ||
+      mem.rutMode === "confirm" ||
+      /checklist|completalo|cargalo|confirm/i.test(originalText))
+  ) {
     intent = { ...intent, fillMode: localFill };
   }
   if (
@@ -428,7 +443,9 @@ async function handleChat(req: NextRequest) {
     wantsOpenResource(text) &&
     intent.action !== "open_rut" &&
     intent.action !== "fill_form" &&
-    intent.action !== "ask_confirm"
+    intent.action !== "ask_confirm" &&
+    mem.rutMode !== "collecting" &&
+    mem.rutMode !== "confirm"
   ) {
     const hit = findBestSections(text, 1)[0];
     const sectionId =
@@ -638,9 +655,14 @@ async function handleChat(req: NextRequest) {
         useGuide: false,
         fillMode: undefined,
         payload: { fields: pending, mode: "auto", step: stepFor },
-        reply: recallPrior
-          ? recallConflictSpoken(RUT_ASK_HINT[missing], pending)
-          : ackAndAskNext(localFields, RUT_ASK_HINT[missing], salt),
+        reply: [
+          fieldConflictNote,
+          recallPrior
+            ? recallConflictSpoken(RUT_ASK_HINT[missing], pending)
+            : ackAndAskNext(localFields, RUT_ASK_HINT[missing], salt),
+        ]
+          .filter(Boolean)
+          .join(" "),
       };
       publish(
         buildEvent(sessionId, "fill_form", "rut", {

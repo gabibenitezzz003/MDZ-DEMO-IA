@@ -232,9 +232,9 @@ export function matchTourChoice(
   if (!t) return null;
   if (/(dale|seguimos|seguimos con eso|eso|continua|ok|va|de una)/i.test(t)) {
     const preferred =
-      choices.find((c) => c.id === "official") ||
-      choices.find((c) => c.id === "voice") ||
+      choices.find((c) => c.id === "continue") ||
       choices.find((c) => c.id === "rut") ||
+      choices.find((c) => c.id === "voice") ||
       choices[0];
     if (preferred) return preferred.id;
   }

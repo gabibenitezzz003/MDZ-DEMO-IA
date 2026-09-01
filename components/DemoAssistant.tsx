@@ -17,8 +17,16 @@ import {
 import { officialUrlFor } from "@/lib/page-knowledge";
 import { readBrowserPageContext } from "@/lib/page-context";
 import type { AgentEvent } from "@/lib/types";
+import {
+  estimateSpeechMs,
+  isNearDuplicateHeard,
+  looksLikeEcho,
+  normalizeHeard,
+  shouldCutSpeechOnInterim,
+} from "@/lib/voice-stt-guards";
 
 const OFFICIAL_PORTAL = officialUrlFor();
+const CHAT_TIMEOUT_MS = 14_000;
 
 type SpeechRecognitionLike = {
   lang: string;
@@ -55,53 +63,6 @@ function getRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
     webkitSpeechRecognition?: new () => SpeechRecognitionLike;
   };
   return w.SpeechRecognition || w.webkitSpeechRecognition || null;
-}
-
-function estimateSpeechMs(text: string) {
-  return Math.max(2500, Math.min(28000, 900 + text.trim().length * 70));
-}
-
-function normalizeHeard(text: string) {
-  return text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .replace(/[^\p{L}\p{N}\s]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function looksLikeEcho(heard: string, spoken: string) {
-  const a = normalizeHeard(heard);
-  const b = normalizeHeard(spoken);
-  if (!a || a.length < 3 || !b) return false;
-  if (a === b) return true;
-  if (b.includes(a) || a.includes(b)) return true;
-  const head = b.slice(0, Math.min(b.length, 56));
-  const tail = b.slice(Math.max(0, b.length - 56));
-  if (a.includes(head) || a.includes(tail) || head.includes(a) || tail.includes(a)) {
-    return true;
-  }
-  const aw = a.split(" ").filter((w) => w.length > 2);
-  if (!aw.length) return false;
-  let hit = 0;
-  for (const w of aw) if (b.includes(w)) hit += 1;
-  return hit / aw.length >= 0.55;
-}
-
-function isNearDuplicateHeard(aRaw: string, bRaw: string) {
-  const a = normalizeHeard(aRaw);
-  const b = normalizeHeard(bRaw);
-  if (!a || !b) return false;
-  if (a === b) return true;
-  if (a.includes(b) || b.includes(a)) return true;
-  const aw = a.split(" ").filter((w) => w.length > 2);
-  const bw = b.split(" ").filter((w) => w.length > 2);
-  if (!aw.length || !bw.length) return false;
-  const setB = new Set(bw);
-  let hit = 0;
-  for (const w of aw) if (setB.has(w)) hit += 1;
-  return hit / Math.max(aw.length, bw.length) >= 0.72;
 }
 
 function base64ToBlobUrl(audioBase64: string, mime = "audio/mpeg") {
@@ -394,30 +355,27 @@ export function DemoAssistant() {
       const echoWindowOpen = Date.now() < lastSpokenUntilRef.current;
       const spoken = lastSpokenRef.current;
 
-      // Cortá el audio apenas se escucha voz real (no eco). El turno se manda
-      // solo cuando el STT marca final — evita duplicar interim + final.
-      if (speakingRef.current && liveTrim.length >= 5) {
-        const isEcho = looksLikeEcho(liveTrim, spoken);
-        if (!isEcho && (bargeArmedRef.current || liveTrim.length >= 9)) {
-          bargeInFlightRef.current = true;
-          stopAudio();
-          speakingRef.current = false;
-          setSpeakingUi(false);
-        }
+      // Cortá el audio apenas se escucha voz real (no eco).
+      if (
+        speakingRef.current &&
+        shouldCutSpeechOnInterim(liveTrim, spoken)
+      ) {
+        bargeInFlightRef.current = true;
+        bargeArmedRef.current = true;
+        stopAudio();
+        speakingRef.current = false;
+        setSpeakingUi(false);
       }
 
       const done = finalText.trim();
       if (!done) return;
 
+      // Eco solo mientras suena o justo después (ventana corta).
       if (
-        (speakingRef.current || busyRef.current || echoWindowOpen || bargeInFlightRef.current) &&
+        (speakingRef.current || bargeInFlightRef.current || echoWindowOpen) &&
         looksLikeEcho(done, spoken)
       ) {
         setInterim("");
-        return;
-      }
-
-      if (speakingRef.current && !bargeArmedRef.current && !bargeInFlightRef.current) {
         return;
       }
 
@@ -430,7 +388,7 @@ export function DemoAssistant() {
       const now = Date.now();
       if (
         lastHeardTextRef.current &&
-        now - lastHeardAtRef.current < 4200 &&
+        now - lastHeardAtRef.current < 2200 &&
         isNearDuplicateHeard(done, lastHeardTextRef.current)
       ) {
         setInterim("");
@@ -622,37 +580,39 @@ export function DemoAssistant() {
         }
 
         lastSpokenRef.current = spoken;
-        lastSpokenUntilRef.current =
-          Date.now() + estimateSpeechMs(spoken) + 1200;
+        // Ventana de eco corta: se recorta al terminar el audio.
+        lastSpokenUntilRef.current = Date.now() + 900;
         speakingRef.current = true;
         setSpeakingUi(true);
-        bargeArmedRef.current = false;
+        bargeArmedRef.current = true;
         bargeInFlightRef.current = false;
-        window.setTimeout(() => {
-          bargeArmedRef.current = true;
-        }, 100);
         stopAudio(true);
+        // Mantener el micrófono vivo para poder interrumpir.
         if (
           !tourRunningRef.current &&
-          !runningRef.current &&
           sessionLiveRef.current &&
           !pushToTalkRef.current
         ) {
-          scheduleRestart(60);
+          if (!runningRef.current) scheduleRestart(40);
         }
+
+        const finishSpeak = () => {
+          lastSpokenUntilRef.current = Date.now() + 600;
+          done();
+        };
 
         if (audioBase64) {
           setVoiceMode("gabi");
           audioRef.current = playAudioBase64(
             audioBase64,
             audioMime || "audio/mpeg",
-            done
+            finishSpeak
           );
         } else if (spoken.trim()) {
           setVoiceMode("browser");
-          speakBrowser(spoken, done);
+          speakBrowser(spoken, finishSpeak);
         } else {
-          done();
+          finishSpeak();
         }
       }),
     [scheduleRestart]
@@ -770,16 +730,22 @@ export function DemoAssistant() {
           setTourChoices(null);
         }
 
-        const res = await fetch("/api/agent/chat", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            sessionId,
-            text,
-            context: readBrowserPageContext(),
-          }),
-        });
+        const timeout = window.setTimeout(() => controller.abort(), CHAT_TIMEOUT_MS);
+        let res: Response;
+        try {
+          res = await fetch("/api/agent/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: controller.signal,
+            body: JSON.stringify({
+              sessionId,
+              text,
+              context: readBrowserPageContext(),
+            }),
+          });
+        } finally {
+          window.clearTimeout(timeout);
+        }
         if (myGen !== genIdRef.current) return;
 
         const data = (await res.json()) as {
@@ -802,6 +768,9 @@ export function DemoAssistant() {
         }
 
         const spoken = data.spoken || data.reply || "Listo.";
+        // Liberar "Pensando…" antes de narrar para no trabar la UI.
+        busyRef.current = false;
+        setBusy(false);
         setLog((prev) => [...prev, { role: "assistant", text: spoken }]);
         setConfirm(data.confirm ?? null);
 
@@ -833,7 +802,17 @@ export function DemoAssistant() {
           err && typeof err === "object" && "name" in err
             ? String((err as { name: string }).name)
             : "";
-        if (name === "AbortError") return;
+        if (name === "AbortError") {
+          setLog((prev) => [
+            ...prev,
+            {
+              role: "assistant",
+              text: "Se me trabó la respuesta. Decime de nuevo, por favor.",
+            },
+          ]);
+          resumeListeningAfterSpeech();
+          return;
+        }
         const detail =
           err instanceof Error && err.message
             ? err.message.slice(0, 120)

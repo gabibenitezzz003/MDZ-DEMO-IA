@@ -27,7 +27,7 @@ export type TourBeat = {
 const CROP_A = {
   id: "ciruela",
   title: "ciruela",
-  why: "una de las cadenas frutícolas más fuertes de Mendoza",
+  why: "una de las cadenas frutícolas más importantes de Mendoza",
 } as const;
 
 const CROP_B = {
@@ -49,21 +49,21 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "intro",
       chapter: "Bienvenida",
       spoken:
-        "Buenas. Soy el asistente de la Dirección de Agricultura de Mendoza. En este recorrido te muestro un cultivo, las herramientas, las autoridades, los precios, el código Q R de O D K, y el RUT. En las pausas, tocá un botón para seguir.",
+        "Buenos días. Soy el asistente de la Dirección de Agricultura de Mendoza. En este recorrido le muestro un cultivo, las herramientas, las autoridades, los precios, el código Q R de O D K, y el RUT. En las pausas, toque un botón para continuar.",
       action: "go_home",
       dwellMs: 350,
     },
     {
       id: "crop",
       chapter: `Cultivo · ${crop.title}`,
-      spoken: `Empezamos por el productor. Te llevo a ${crop.title}: ${crop.why}. Acá están los informes y los datos productivos.`,
+      spoken: `Comenzamos por el productor. Lo llevo a ${crop.title}: ${crop.why}. Aquí están los informes y los datos productivos.`,
       action: "navigate",
       target: crop.id,
       payload: { openLink: false, click: true },
       dwellMs: 300,
       pause: {
         prompt:
-          "Elegí con un botón: abrimos el sitio oficial de este cultivo, o seguimos a las herramientas.",
+          "Elija una opción: abrimos el sitio oficial de este cultivo, o continuamos con las herramientas.",
         timeoutMs: 0,
         defaultChoiceId: "continue",
         choices: [
@@ -84,7 +84,7 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "crop-official",
       chapter: "Recurso oficial",
       spoken:
-        "Listo. El recurso oficial quedó en otra pestaña. Yo me quedo acá para seguir el recorrido.",
+        "Listo. El recurso oficial quedó en otra pestaña. Yo continúo aquí para seguir el recorrido.",
       dwellMs: 350,
       skipUnlessChoice: "official",
     },
@@ -92,14 +92,14 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "mapas",
       chapter: "Herramientas",
       spoken:
-        "Ahora, las herramientas. Te marco Mapas agrícolas, para mirar la provincia. Al lado tenés el visor, las estaciones y el radar.",
+        "Ahora, las herramientas. Le indico Mapas agrícolas, para observar la provincia. Al lado tiene el visor, las estaciones y el radar.",
       action: "navigate",
       target: "mapas-agricolas",
       payload: { openLink: false, click: true, url: mapasOfficial },
       dwellMs: 300,
       pause: {
         prompt:
-          "Elegí con un botón: te muestro el radar, o seguimos a autoridades.",
+          "Elija una opción: le muestro el radar, o continuamos con autoridades.",
         timeoutMs: 0,
         defaultChoiceId: "continue",
         choices: [
@@ -120,7 +120,7 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "radar",
       chapter: "Radar",
       spoken:
-        "Te marco el radar meteorológico en la demo. El sitio oficial ya quedó abierto en la otra pestaña.",
+        "Le indico el radar meteorológico en la demo. El sitio oficial ya quedó abierto en la otra pestaña.",
       action: "navigate",
       target: "radar",
       payload: { openLink: false, click: true, url: radarOfficial },
@@ -151,14 +151,14 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "odk",
       chapter: "ODK Collect",
       spoken:
-        "Este es el código Q R de O D K Collect. No es un link web. En el celular abrís Agregar proyecto, y lo escaneás.",
+        "Este es el código Q R de O D K Collect. No es un enlace web. En el celular abra Agregar proyecto y escanéelo.",
       action: "navigate",
       target: "odk-collect",
       payload: { openLink: false, click: true },
       dwellMs: 300,
       pause: {
         prompt:
-          "Elegí con un botón: seguimos al RUT, o te explico otra vez el código Q R.",
+          "Elija una opción: continuamos con el RUT, o le explico otra vez el código Q R.",
         timeoutMs: 0,
         defaultChoiceId: "rut",
         choices: [
@@ -190,13 +190,13 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "rut",
       chapter: "RUT",
       spoken:
-        "Cerramos con el RUT, el Registro Único de Tierras. Te abro el asistente de carga. Después podés dictarme cuit, mail y razón social.",
+        "Cerramos con el RUT, el Registro Único de Tierras. Le abro el asistente de carga. Después puede dictarme cuit, correo y razón social.",
       action: "open_rut",
       payload: { openExternal: false },
       dwellMs: 350,
       pause: {
         prompt:
-          "Elegí con un botón: arrancamos a cargar datos por voz, o abrimos el S I A oficial.",
+          "Elija una opción: comenzamos a cargar datos por voz, o abrimos el S I A oficial.",
         timeoutMs: 0,
         defaultChoiceId: "voice",
         choices: [
@@ -217,7 +217,7 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "rut-sia",
       chapter: "SIA oficial",
       spoken:
-        "El ingreso al S I A oficial quedó en otra pestaña. La declaración real se hace ahí. Esta demo solo simula el recorrido.",
+        "El ingreso al S I A oficial quedó en otra pestaña. La declaración real se realiza allí. Esta demo solo simula el recorrido.",
       dwellMs: 350,
       skipUnlessChoice: "sia",
     },
@@ -230,7 +230,7 @@ export function matchTourChoice(
 ): string | null {
   const t = text.trim();
   if (!t) return null;
-  if (/(dale|seguimos|seguimos con eso|eso|continua|ok|va|de una)/i.test(t)) {
+  if (/(dale|seguimos|seguimos con eso|eso|continua|ok|va|de una|de acuerdo)/i.test(t)) {
     const preferred =
       choices.find((c) => c.id === "continue") ||
       choices.find((c) => c.id === "rut") ||

@@ -17,6 +17,6 @@ describe("recallConflictSpoken", () => {
     const text = recallConflictSpoken("el correo electrónico", {
       cuit: "20-12345678-9",
     });
-    expect(text).toMatch(/Tenés razón|correo/i);
+    expect(text).toMatch(/Tiene razón|correo/i);
   });
 });

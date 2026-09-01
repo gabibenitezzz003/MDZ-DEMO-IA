@@ -1,6 +1,6 @@
 import { withTimeout } from "@/lib/async-timeout";
 
-const DEFAULT_VOICE_ID = "xDZJO6bbSnscJEAbhpRF";
+const DEFAULT_VOICE_ID = "h60rOzgfLmYsntfqgGu2";
 const DEFAULT_CHAT_MODEL = "eleven_flash_v2_5";
 const DEFAULT_NARRATION_MODEL = "eleven_multilingual_v2";
 
@@ -36,19 +36,20 @@ async function synthesizeSpeechOnce(
     quality === "narration" ? "0" : "3";
   // Narración: más estable y lenta. Evitamos "style/speed" en multilingual
   // porque algunos modelos los rechazan y el audio cae al fallback del browser.
+  // Voz neutra/profesional: más estabilidad, menos estilo expresivo.
   const voice_settings =
     quality === "narration"
       ? {
-          stability: 0.68,
-          similarity_boost: 0.78,
+          stability: 0.74,
+          similarity_boost: 0.72,
           use_speaker_boost: true,
         }
       : {
-          stability: 0.52,
-          similarity_boost: 0.82,
-          style: 0.22,
+          stability: 0.7,
+          similarity_boost: 0.75,
+          style: 0.12,
           use_speaker_boost: true,
-          speed: 1.02,
+          speed: 0.98,
         };
 
   const controller = new AbortController();

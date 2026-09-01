@@ -156,7 +156,7 @@ async function withVoice(spoken: string, extra: Record<string, unknown>) {
     reply: text,
     audioBase64,
     audioMime,
-    voice: process.env.ELEVENLABS_VOICE_ID || "xDZJO6bbSnscJEAbhpRF",
+    voice: process.env.ELEVENLABS_VOICE_ID || "h60rOzgfLmYsntfqgGu2",
     ...extra,
   });
 }
@@ -266,7 +266,7 @@ async function handleChat(req: NextRequest) {
 
   if (wantsGuidedTour(text)) {
     const spoken =
-      "Dale. Arranco el viaje del productor: un cultivo, herramientas, autoridades, precios, el QR de ODK y el RUT. Si querés parar, decime parar demo.";
+      "De acuerdo. Inicio el recorrido del productor: un cultivo, herramientas, autoridades, precios, el QR de ODK y el RUT. Si desea detenerlo, diga parar demo.";
     appendTurn(sessionId, "assistant", spoken);
     return withVoice(spoken, { via: "local", startTour: true });
   }
@@ -490,8 +490,8 @@ async function handleChat(req: NextRequest) {
       reply: /(no se abrio|no se abrió|no abrio|no abrió|no aparecio|no apareció)/.test(
         text
       )
-        ? "Uy, disculpá: a veces el navegador bloquea la ventana. Tocá el botón azul «Abrir sitio oficial» abajo a la izquierda — con ese toque sí abre. Yo sigo acá."
-        : `Dale, te abro el recurso oficial${sectionId ? ` de ${sectionId.replace(/-/g, " ")}` : ""} en otra pestaña... Si no aparece, tocá «Abrir sitio oficial». Yo sigo acá.`,
+        ? "Disculpe: a veces el navegador bloquea la ventana. Toque el botón azul «Abrir sitio oficial» abajo a la izquierda; con ese toque sí abre. Yo continúo aquí."
+        : `De acuerdo, le abro el recurso oficial${sectionId ? ` de ${sectionId.replace(/-/g, " ")}` : ""} en otra pestaña. Si no aparece, toque «Abrir sitio oficial». Yo continúo aquí.`,
     };
   }
 
@@ -712,7 +712,7 @@ async function handleChat(req: NextRequest) {
         useGuide: false,
         payload: { field: missing, step: stepFor },
         reply: hasPending
-          ? `Seguimos. Pasame ${RUT_ASK_HINT[missing]}.`
+          ? `Continuamos. Páseme ${RUT_ASK_HINT[missing]}.`
           : askFirstField(RUT_ASK_HINT[missing]),
       };
       publish(

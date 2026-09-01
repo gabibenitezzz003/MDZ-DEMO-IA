@@ -27,7 +27,7 @@ npm run dev -- -H 127.0.0.1 -p 3000
 GEMINI_API_KEY=...
 GEMINI_MODEL=gemini-2.5-flash
 ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID=xDZJO6bbSnscJEAbhpRF
+ELEVENLABS_VOICE_ID=h60rOzgfLmYsntfqgGu2
 N8N_WEBHOOK_URL=http://127.0.0.1:5678/webhook/demo-agricultura
 USE_N8N_AS_BRAIN=true
 ```

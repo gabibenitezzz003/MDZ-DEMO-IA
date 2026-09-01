@@ -59,11 +59,11 @@ export function conflictSpoken(conflicts: FieldConflict[]): string {
   if (!conflicts.length) return "";
   if (conflicts.length === 1) {
     const c = conflicts[0];
-    return `Antes tenía ${c.label} ${c.previous} y ahora me pasaste ${c.incoming}. Dejé el nuevo. Si estaba mal, dictámelo de nuevo.`;
+    return `Antes tenía ${c.label} ${c.previous} y ahora indicó ${c.incoming}. Dejé el nuevo. Si no era correcto, indíquelo nuevamente.`;
   }
   const bits = conflicts
     .slice(0, 2)
     .map((c) => `${c.label}`)
     .join(" y ");
-  return `Hubo diferencias en ${bits}. Dejé lo último que me dictaste. Si querés corregir, pasame el dato de nuevo.`;
+  return `Hubo diferencias en ${bits}. Dejé lo último que indicó. Si desea corregir, pase el dato nuevamente.`;
 }

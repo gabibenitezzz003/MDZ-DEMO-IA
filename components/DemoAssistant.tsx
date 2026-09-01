@@ -195,7 +195,7 @@ export function DemoAssistant() {
     [
       {
         role: "assistant",
-        text: "Hola, ¿cómo andás? Tocá el micrófono verde o ▶ Demo 3 min para el recorrido completo. Marco la página, abro el portal oficial en otra pestaña y te guío el RUT por voz.",
+        text: "Hola, ¿cómo está? Active el micrófono verde o ▶ Demo 3 min para el recorrido completo. Marco la página, abro el portal oficial en otra pestaña y lo guío en el RUT por voz.",
       },
     ]
   );

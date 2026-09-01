@@ -199,8 +199,8 @@ async function callGemini(
                 responseSchema: RESPONSE_SCHEMA,
               }
             : {
-                temperature: repair ? 0.15 : 0.4,
-                topP: 0.85,
+                temperature: repair ? 0.2 : 0.55,
+                topP: 0.9,
                 maxOutputTokens: 360,
                 responseMimeType: "application/json",
                 responseSchema: RESPONSE_SCHEMA,
@@ -254,7 +254,9 @@ export async function interpretWithGemini(input: {
     `MEMORIA DE SESIÓN (hechos): ${facts}.`,
     `Texto original del dictado: "${input.originalText}".`,
     `Texto corregido (si cambió, priorizalo): "${input.text}".`,
-    "Interpretá la intención con máxima fluidez, elegí la acción y respondé como guía en vivo premium.",
+    "PRIORIDAD: respondé exactamente a lo que la persona preguntó. Si pregunta si la escucha, confirmalo (action=describe) sin navegar.",
+    "Sé asertivo y útil: solución concreta + siguiente paso. Variá el tono; no repitas la misma plantilla.",
+    "Si no hay pedido de sección/trámite, no navegues.",
   ].join("\n");
 
   for (const model of MODELS) {

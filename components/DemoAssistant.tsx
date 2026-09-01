@@ -1173,7 +1173,7 @@ export function DemoAssistant() {
       : `Demo 3 min · tocá un botón`
     : !sessionLive
       ? voiceMode === "gabi"
-        ? "Voz GABI B lista"
+        ? "Voz lista"
         : "Guía premium · Mendoza"
       : speakingUi
         ? "Hablando · podés interrumpir"
@@ -1488,7 +1488,7 @@ export function DemoAssistant() {
               </button>
             ) : (
               <span className="font-medium text-slate-400">
-                GABI B · Gemini · Mendoza
+                Voz institucional · Gemini · Mendoza
               </span>
             )}
           </div>

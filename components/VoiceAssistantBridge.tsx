@@ -432,7 +432,7 @@ export function VoiceAssistantBridge() {
 
   return (
     <div className="fixed bottom-4 left-4 z-50 max-w-[15rem] rounded-2xl border border-white/50 bg-white/95 px-3 py-2.5 text-xs text-slate-600 shadow-xl backdrop-blur-xl">
-      <p className="font-semibold text-mza-blue">Demo en vivo · GABI B</p>
+      <p className="font-semibold text-mza-blue">Demo en vivo · Asistente IA</p>
       <p className="mt-0.5 text-[10px] leading-relaxed text-slate-500">
         Bot a la derecha · oficiales en otra pestaña · yo sigo acá
       </p>

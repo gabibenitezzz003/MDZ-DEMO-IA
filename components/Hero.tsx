@@ -42,7 +42,7 @@ export function Hero() {
             <li>• Recorré el RUT paso a paso sin perderte</li>
           </ul>
           <p className="mt-4 text-xs text-sky-200">
-            Usá el chat de la derecha: voz GABI B + control de la página.
+            Usá el chat de la derecha: voz institucional + control de la página.
           </p>
         </div>
       </div>

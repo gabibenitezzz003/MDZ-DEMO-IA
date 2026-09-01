@@ -38,7 +38,7 @@ NEXT_PUBLIC_USE_DOGRAH=false
 
 # Cerebro + voz
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-3.6-flash
 ELEVENLABS_API_KEY=...
 ELEVENLABS_VOICE_ID=xDZJO6bbSnscJEAbhpRF
 ELEVENLABS_MODEL_ID=eleven_multilingual_v2

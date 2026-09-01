@@ -108,7 +108,7 @@ export async function interpretWithN8n(input: {
         pendingFields: input.pendingFields || {},
         rutMode: input.rutMode || "idle",
         facts: input.facts || {},
-        model: process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
+        model: process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash",
         geminiApiKey: process.env.GEMINI_API_KEY?.trim() || "",
       }),
     });

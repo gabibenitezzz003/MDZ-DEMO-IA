@@ -27,11 +27,14 @@ const ACTIONS: AgentAction[] = [
 
 const MODELS = [
   process.env.GEMINI_MODEL?.trim(),
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
+  "gemini-3.6-flash",
+  "gemini-3.5-flash",
+  "gemini-3.5-flash-lite",
 ].filter((m): m is string => Boolean(m));
+
+function isGemini3Family(model: string) {
+  return /^gemini-3(\.|-)/.test(model);
+}
 
 const STRING_FIELD = { type: "string" };
 
@@ -180,13 +183,20 @@ async function callGemini(
       body: JSON.stringify({
         systemInstruction: { parts: [{ text: buildAgentSystemPrompt() }] },
         contents,
-        generationConfig: {
-          temperature: repair ? 0.15 : 0.4,
-          topP: 0.85,
-          maxOutputTokens: 360,
-          responseMimeType: "application/json",
-          responseSchema: RESPONSE_SCHEMA,
-        },
+        generationConfig: isGemini3Family(model)
+          ? {
+              // Gemini 3.x: temperature/topP están deprecated; no enviarlos.
+              maxOutputTokens: repair ? 512 : 420,
+              responseMimeType: "application/json",
+              responseSchema: RESPONSE_SCHEMA,
+            }
+          : {
+              temperature: repair ? 0.15 : 0.4,
+              topP: 0.85,
+              maxOutputTokens: 360,
+              responseMimeType: "application/json",
+              responseSchema: RESPONSE_SCHEMA,
+            },
       }),
     }
   );

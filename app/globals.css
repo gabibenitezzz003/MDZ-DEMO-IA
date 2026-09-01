@@ -1,0 +1,121 @@
+@import "tailwindcss";
+
+:root {
+  --mza-blue: #0033a0;
+  --mza-blue-dark: #002266;
+  --mza-blue-light: #1a4db8;
+  --mza-gold: #c9a227;
+  --mza-bg: #f5f7fb;
+  --mza-text: #1a1a2e;
+}
+
+@theme inline {
+  --color-mza-blue: var(--mza-blue);
+  --color-mza-blue-dark: var(--mza-blue-dark);
+  --color-mza-blue-light: var(--mza-blue-light);
+  --color-mza-gold: var(--mza-gold);
+  --color-mza-bg: var(--mza-bg);
+  --color-mza-text: var(--mza-text);
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--mza-bg);
+  color: var(--mza-text);
+  font-family: var(--font-sans);
+}
+
+.agent-highlight {
+  outline: 3px solid var(--mza-gold);
+  outline-offset: 4px;
+  box-shadow: 0 0 0 8px rgba(201, 162, 39, 0.25);
+  transition: outline 0.2s ease, box-shadow 0.2s ease;
+  border-radius: 0.75rem;
+  animation: demo-fade-up 0.25s ease-out;
+}
+
+.demo-watermark::before {
+  content: "DEMO";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: clamp(4rem, 18vw, 12rem);
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: rgba(0, 51, 160, 0.04);
+  transform: rotate(-18deg);
+}
+
+@keyframes demo-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(16, 185, 129, 0);
+  }
+}
+
+.demo-mic-live {
+  animation: demo-pulse 1.6s ease-out infinite;
+}
+
+@keyframes demo-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.demo-panel-enter {
+  animation: demo-fade-up 0.35s ease-out;
+}
+
+.official-toast {
+  animation: demo-fade-up 0.4s ease-out;
+}
+
+@keyframes demo-wave {
+  0%,
+  100% {
+    transform: scaleY(0.45);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+
+.demo-voice-bars span {
+  display: inline-block;
+  width: 3px;
+  height: 14px;
+  margin: 0 1px;
+  border-radius: 999px;
+  background: currentColor;
+  animation: demo-wave 0.9s ease-in-out infinite;
+}
+
+.demo-voice-bars span:nth-child(2) {
+  animation-delay: 0.12s;
+}
+.demo-voice-bars span:nth-child(3) {
+  animation-delay: 0.24s;
+}
+.demo-voice-bars span:nth-child(4) {
+  animation-delay: 0.36s;
+}
+.demo-voice-bars span:nth-child(5) {
+  animation-delay: 0.18s;
+}

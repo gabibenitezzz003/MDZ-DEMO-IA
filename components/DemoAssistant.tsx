@@ -1,0 +1,1237 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSessionId } from "@/components/SessionProvider";
+import {
+  buildDemoTourBeats,
+  matchTourChoice,
+  pickTourCrop,
+  wantsStopTour,
+  type TourChoice,
+} from "@/lib/demo-tour";
+import {
+  navigateOfficialTab,
+  openOfficialFromUserGesture,
+  primeOfficialTab,
+} from "@/lib/official-tab";
+import { officialUrlFor } from "@/lib/page-knowledge";
+import { readBrowserPageContext } from "@/lib/page-context";
+import type { AgentEvent } from "@/lib/types";
+
+const OFFICIAL_PORTAL = officialUrlFor();
+
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  maxAlternatives?: number;
+  start: () => void;
+  stop: () => void;
+  abort?: () => void;
+  onresult:
+    | ((ev: {
+        resultIndex: number;
+        results: ArrayLike<{
+          0: { transcript: string };
+          isFinal: boolean;
+        }>;
+      }) => void)
+    | null;
+  onerror: ((ev: { error: string }) => void) | null;
+  onend: (() => void) | null;
+  onstart: (() => void) | null;
+};
+
+type ConfirmFill = {
+  type: "fill";
+  fields: Record<string, string>;
+  question: string;
+};
+
+function getRecognitionCtor(): (new () => SpeechRecognitionLike) | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    SpeechRecognition?: new () => SpeechRecognitionLike;
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  };
+  return w.SpeechRecognition || w.webkitSpeechRecognition || null;
+}
+
+function estimateSpeechMs(text: string) {
+  return Math.max(2500, Math.min(28000, 900 + text.trim().length * 70));
+}
+
+function normalizeHeard(text: string) {
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function looksLikeEcho(heard: string, spoken: string) {
+  const a = normalizeHeard(heard);
+  const b = normalizeHeard(spoken);
+  if (!a || a.length < 4 || !b) return false;
+  if (b.includes(a) || a.includes(b.slice(0, Math.min(b.length, 40)))) return true;
+  const aw = new Set(a.split(" ").filter((w) => w.length > 3));
+  if (!aw.size) return false;
+  let hit = 0;
+  for (const w of aw) if (b.includes(w)) hit += 1;
+  return hit / aw.size >= 0.7;
+}
+
+function playAudioBase64(
+  audioBase64: string,
+  mime = "audio/mpeg",
+  onEnd?: () => void
+) {
+  const audio = new Audio(`data:${mime};base64,${audioBase64}`);
+  let finished = false;
+  let safety = 0;
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    if (safety) window.clearTimeout(safety);
+    onEnd?.();
+  };
+  // Expose so stopAudio can resolve the waiter instead of hanging the tour.
+  (audio as HTMLAudioElement & { __demoDone?: () => void }).__demoDone = done;
+  audio.onended = done;
+  audio.onerror = done;
+  void audio.play().then(undefined, (err: unknown) => {
+    // AbortError when we pause/replace audio mid-play — stopAudio will finish.
+    const name =
+      err && typeof err === "object" && "name" in err
+        ? String((err as { name: string }).name)
+        : "";
+    if (name !== "AbortError") done();
+  });
+  safety = window.setTimeout(done, 35000);
+  return audio;
+}
+
+function speakBrowser(text: string, onEnd?: () => void) {
+  let finished = false;
+  let safety = 0;
+  const done = () => {
+    if (finished) return;
+    finished = true;
+    if (safety) window.clearTimeout(safety);
+    onEnd?.();
+  };
+
+  if (typeof window === "undefined" || !window.speechSynthesis) {
+    done();
+    return;
+  }
+
+  window.speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "es-AR";
+  u.rate = 0.96;
+  u.onend = done;
+  u.onerror = done;
+  window.speechSynthesis.speak(u);
+  // Safety after estimated duration — must NOT fire before speech ends.
+  safety = window.setTimeout(done, estimateSpeechMs(text) + 4000);
+}
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+const SUGGESTIONS = [
+  "Demo guiada",
+  "Mostrame el RUT",
+  "Llevame a ciruela",
+  "Mapas agrícolas",
+  "Quién es el director",
+  "Qué es el QR",
+  "Dónde estoy",
+  "Explicame esto",
+];
+
+export function DemoAssistant() {
+  const sessionId = useSessionId();
+  const [open, setOpen] = useState(true);
+  const [sessionLive, setSessionLive] = useState(false);
+  const [, setListening] = useState(false);
+  const [speakingUi, setSpeakingUi] = useState(false);
+  const [input, setInput] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [interim, setInterim] = useState("");
+  const [confirm, setConfirm] = useState<ConfirmFill | null>(null);
+  const [voiceMode, setVoiceMode] = useState<"gabi" | "browser" | "none">(
+    "none"
+  );
+  const [pushToTalk, setPushToTalk] = useState(false);
+  const [tourRunning, setTourRunning] = useState(false);
+  const [tourStep, setTourStep] = useState(0);
+  const [tourChapter, setTourChapter] = useState("");
+  const [tourChoices, setTourChoices] = useState<TourChoice[] | null>(null);
+  const [tourPausePrompt, setTourPausePrompt] = useState("");
+  const [officialHint, setOfficialHint] = useState(false);
+  const tourChoiceResolverRef = useRef<((id: string) => void) | null>(null);
+  const [log, setLog] = useState<{ role: "user" | "assistant"; text: string }[]>(
+    [
+      {
+        role: "assistant",
+        text: "Hola, ¿cómo andás? Tocá el micrófono verde o ▶ Demo 3 min para el recorrido completo. Marco la página, abro el portal oficial en otra pestaña y te guío el RUT por voz.",
+      },
+    ]
+  );
+  const tourCancelRef = useRef(false);
+  const tourRunningRef = useRef(false);
+  const pushToTalkRef = useRef(false);
+  const runGuidedTourRef = useRef<() => Promise<void>>(async () => undefined);
+
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const sessionLiveRef = useRef(false);
+  const speakingRef = useRef(false);
+  const busyRef = useRef(false);
+  const startingRef = useRef(false);
+  const runningRef = useRef(false);
+  const queueRef = useRef<string[]>([]);
+  const lastHeardAtRef = useRef(0);
+  const lastHeardTextRef = useRef("");
+  const lastStartAtRef = useRef(0);
+  const restartTimerRef = useRef<number | null>(null);
+  const startEngineRef = useRef<() => void>(() => undefined);
+  const handleTextRef = useRef<(raw: string) => Promise<void>>(
+    async () => undefined
+  );
+  const genIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  const lastSpokenRef = useRef("");
+  const bargeArmedRef = useRef(false);
+
+  const speechSupported = useMemo(
+    () => (typeof window === "undefined" ? false : Boolean(getRecognitionCtor())),
+    []
+  );
+
+  const clearRestartTimer = useCallback(() => {
+    if (restartTimerRef.current != null) {
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
+  }, []);
+
+  const disposeRecognition = useCallback((abort: boolean) => {
+    const rec = recognitionRef.current;
+    recognitionRef.current = null;
+    runningRef.current = false;
+    startingRef.current = false;
+    if (!rec) return;
+    rec.onend = null;
+    rec.onerror = null;
+    rec.onresult = null;
+    rec.onstart = null;
+    if (!abort) return;
+    try {
+      rec.abort?.();
+    } catch {
+      try {
+        rec.stop();
+      } catch {
+        // ignore
+      }
+    }
+  }, []);
+
+  const stopAudio = (keepSpeakingFlag = false) => {
+    window.speechSynthesis?.cancel();
+    const audio = audioRef.current;
+    audioRef.current = null;
+    if (audio) {
+      const finish = (
+        audio as HTMLAudioElement & { __demoDone?: () => void }
+      ).__demoDone;
+      audio.onended = null;
+      audio.onerror = null;
+      try {
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+      } catch {
+        // ignore cleanup races
+      }
+      // Resolve the previous speakLine waiter (tour / barge-in).
+      finish?.();
+    }
+    if (!keepSpeakingFlag) {
+      speakingRef.current = false;
+      setSpeakingUi(false);
+    }
+  };
+
+  const tourPauseListeningRef = useRef(false);
+
+  const scheduleRestart = useCallback((delayMs = 180) => {
+    clearRestartTimer();
+    restartTimerRef.current = window.setTimeout(() => {
+      restartTimerRef.current = null;
+      if (!sessionLiveRef.current) return;
+      if (pushToTalkRef.current) return;
+      startEngineRef.current();
+    }, delayMs);
+  }, [clearRestartTimer]);
+
+  const startRecognitionEngine = useCallback(() => {
+    if (!sessionLiveRef.current) return;
+    if (pushToTalkRef.current) return;
+    if (startingRef.current || runningRef.current) return;
+    if (Date.now() - lastStartAtRef.current < 250) {
+      scheduleRestart(250);
+      return;
+    }
+
+    const Ctor = getRecognitionCtor();
+    if (!Ctor) return;
+
+    disposeRecognition(false);
+
+    const rec = new Ctor();
+    recognitionRef.current = rec;
+    rec.lang = "es-AR";
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.maxAlternatives = 1;
+
+    rec.onstart = () => {
+      startingRef.current = false;
+      runningRef.current = true;
+      setListening(true);
+    };
+
+    rec.onresult = (ev) => {
+      let finalText = "";
+      let live = "";
+      for (let i = ev.resultIndex; i < ev.results.length; i += 1) {
+        const piece = ev.results[i];
+        const said = piece?.[0]?.transcript ?? "";
+        if (!said) continue;
+        if (piece.isFinal) finalText += `${said} `;
+        else live += said;
+      }
+
+      const liveTrim = live.trim();
+      if (liveTrim) setInterim(liveTrim);
+
+      const done = finalText.trim();
+      const candidate = done || (liveTrim.length >= 12 ? liveTrim : "");
+      if (!candidate) return;
+
+      if (
+        (speakingRef.current || busyRef.current) &&
+        looksLikeEcho(candidate, lastSpokenRef.current)
+      ) {
+        return;
+      }
+
+      if (speakingRef.current || busyRef.current) {
+        if (!done && liveTrim.length < 14) return;
+        if (!bargeArmedRef.current && speakingRef.current) return;
+      }
+
+      const now = Date.now();
+      const key = candidate.toLowerCase();
+      if (
+        key === lastHeardTextRef.current &&
+        now - lastHeardAtRef.current < 1600
+      ) {
+        return;
+      }
+      lastHeardTextRef.current = key;
+      lastHeardAtRef.current = now;
+      setInterim("");
+      void handleTextRef.current(candidate);
+    };
+
+    rec.onerror = (ev) => {
+      startingRef.current = false;
+
+      if (ev.error === "no-speech") {
+        // Chrome dispara onend después; no reinicies acá
+        return;
+      }
+
+      if (ev.error === "aborted") {
+        runningRef.current = false;
+        return;
+      }
+
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+        sessionLiveRef.current = false;
+        setSessionLive(false);
+        setListening(false);
+        disposeRecognition(false);
+        setLog((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: "El navegador bloqueó el micrófono. Permitilo en el candado de la barra de direcciones y tocá de nuevo el botón verde.",
+          },
+        ]);
+        return;
+      }
+
+      if (ev.error === "audio-capture") {
+        runningRef.current = false;
+        setLog((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: "No encuentro el micrófono. Revisá que esté conectado y que ninguna otra app lo esté usando.",
+          },
+        ]);
+        return;
+      }
+    };
+
+    rec.onend = () => {
+      startingRef.current = false;
+      runningRef.current = false;
+      recognitionRef.current = null;
+      if (sessionLiveRef.current && !pushToTalkRef.current) {
+        scheduleRestart(speakingRef.current || busyRef.current ? 120 : 220);
+      }
+    };
+
+    startingRef.current = true;
+    lastStartAtRef.current = Date.now();
+    try {
+      rec.start();
+    } catch {
+      startingRef.current = false;
+      runningRef.current = false;
+      recognitionRef.current = null;
+      scheduleRestart(600);
+    }
+  }, [scheduleRestart]);
+
+  startEngineRef.current = startRecognitionEngine;
+
+  const pauseListeningForSpeech = useCallback(() => {
+    speakingRef.current = true;
+    setSpeakingUi(true);
+    setInterim("");
+    bargeArmedRef.current = false;
+    window.setTimeout(() => {
+      bargeArmedRef.current = true;
+    }, 450);
+    if (!runningRef.current && !pushToTalkRef.current) {
+      scheduleRestart(80);
+    }
+  }, [scheduleRestart]);
+
+  const resumeListeningAfterSpeech = useCallback(() => {
+    speakingRef.current = false;
+    setSpeakingUi(false);
+    bargeArmedRef.current = false;
+    if (!sessionLiveRef.current) return;
+    if (pushToTalkRef.current) {
+      setListening(false);
+      return;
+    }
+    scheduleRestart(120);
+  }, [scheduleRestart]);
+
+  const hardStopSession = useCallback(() => {
+    sessionLiveRef.current = false;
+    setSessionLive(false);
+    genIdRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    clearRestartTimer();
+    stopAudio();
+    setInterim("");
+    setListening(false);
+    disposeRecognition(true);
+    busyRef.current = false;
+    setBusy(false);
+  }, [clearRestartTimer, disposeRecognition]);
+
+  const startVoiceSession = useCallback(() => {
+    if (!speechSupported) {
+      setLog((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: "Este navegador no soporta dictado por voz. Usá Chrome o Edge, o escribí en el chat.",
+        },
+      ]);
+      return;
+    }
+
+    sessionLiveRef.current = true;
+    setSessionLive(true);
+    speakingRef.current = false;
+    setSpeakingUi(false);
+    setLog((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        text: "Micrófono abierto. Hablá cuando quieras: “hola”, “mostrame el RUT” o “llevame a los mapas”.",
+      },
+    ]);
+
+    // Arrancá el dictado YA. El saludo por voz dejaba el micrófono trabado
+    // cuando Chrome no disparaba onend.
+    startRecognitionEngine();
+  }, [speechSupported, startRecognitionEngine]);
+
+  const endVoiceSession = useCallback(() => {
+    hardStopSession();
+    setLog((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        text: "Listo, apagué el micrófono. Cuando quieras seguir, tocá el botón verde.",
+      },
+    ]);
+  }, [hardStopSession]);
+
+  const speakWaiterRef = useRef<(() => void) | null>(null);
+
+  const speakLine = useCallback(
+    (spoken: string, audioBase64?: string, audioMime?: string, genId?: number) =>
+      new Promise<void>((resolve) => {
+        const prev = speakWaiterRef.current;
+        speakWaiterRef.current = null;
+        prev?.();
+
+        let finished = false;
+        const done = () => {
+          if (finished) return;
+          finished = true;
+          if (speakWaiterRef.current === done) speakWaiterRef.current = null;
+          window.clearTimeout(safety);
+          resolve();
+        };
+        speakWaiterRef.current = done;
+        const safety = window.setTimeout(
+          done,
+          audioBase64 ? 32000 : estimateSpeechMs(spoken) + 4000
+        );
+
+        if (genId != null && genId !== genIdRef.current) {
+          done();
+          return;
+        }
+
+        lastSpokenRef.current = spoken;
+        speakingRef.current = true;
+        setSpeakingUi(true);
+        bargeArmedRef.current = false;
+        window.setTimeout(() => {
+          bargeArmedRef.current = true;
+        }, 450);
+        stopAudio(true);
+        if (!runningRef.current && sessionLiveRef.current && !pushToTalkRef.current) {
+          scheduleRestart(80);
+        }
+
+        if (audioBase64) {
+          setVoiceMode("gabi");
+          audioRef.current = playAudioBase64(
+            audioBase64,
+            audioMime || "audio/mpeg",
+            done
+          );
+        } else if (spoken.trim()) {
+          setVoiceMode("browser");
+          speakBrowser(spoken, done);
+        } else {
+          done();
+        }
+      }),
+    [scheduleRestart]
+  );
+
+  const resolveTourChoice = useCallback((id: string, fromGesture = false) => {
+    if (id === "official") {
+      const opened = fromGesture
+        ? openOfficialFromUserGesture(OFFICIAL_PORTAL)
+        : navigateOfficialTab(OFFICIAL_PORTAL);
+      window.dispatchEvent(
+        new CustomEvent("demo:official-toast", {
+          detail: {
+            url: OFFICIAL_PORTAL,
+            title: "Portal oficial · Agricultura",
+            sectionId: "home",
+            blocked: !opened,
+          },
+        })
+      );
+    }
+    const resolver = tourChoiceResolverRef.current;
+    tourChoiceResolverRef.current = null;
+    setTourChoices(null);
+    setTourPausePrompt("");
+    resolver?.(id);
+  }, []);
+
+  const handleText = useCallback(
+    async (raw: string, opts?: { silentUser?: boolean }) => {
+      const text = raw.trim();
+      if (!text || !sessionId) return;
+
+      if (tourRunningRef.current && tourChoices && tourChoiceResolverRef.current) {
+        if (wantsStopTour(text)) {
+          tourCancelRef.current = true;
+          resolveTourChoice(tourChoices[0]?.id || "continue");
+          return;
+        }
+        const choiceId = matchTourChoice(text, tourChoices);
+        if (choiceId) {
+          if (!opts?.silentUser) {
+            setLog((prev) => [...prev, { role: "user", text }]);
+          }
+          resolveTourChoice(choiceId);
+          return;
+        }
+        if (!tourPauseListeningRef.current) {
+          tourCancelRef.current = true;
+        }
+      }
+
+      abortRef.current?.abort();
+      stopAudio();
+      const myGen = ++genIdRef.current;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      queueRef.current = [];
+
+      busyRef.current = true;
+      setBusy(true);
+      if (!opts?.silentUser) {
+        setLog((prev) => [...prev, { role: "user", text }]);
+      }
+      setInput("");
+      setConfirm(null);
+      pauseListeningForSpeech();
+
+      try {
+        if (wantsStopTour(text)) {
+          tourCancelRef.current = true;
+          tourRunningRef.current = false;
+          setTourRunning(false);
+          setTourChoices(null);
+        }
+
+        const res = await fetch("/api/agent/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            sessionId,
+            text,
+            context: readBrowserPageContext(),
+          }),
+        });
+        if (myGen !== genIdRef.current) return;
+
+        const data = (await res.json()) as {
+          ok?: boolean;
+          spoken?: string;
+          reply?: string;
+          audioBase64?: string;
+          audioMime?: string;
+          error?: string;
+          event?: AgentEvent;
+          confirm?: ConfirmFill;
+          endSession?: boolean;
+          startTour?: boolean;
+        };
+
+        if (myGen !== genIdRef.current) return;
+
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error || `chat HTTP ${res.status}`);
+        }
+
+        const spoken = data.spoken || data.reply || "Listo.";
+        setLog((prev) => [...prev, { role: "assistant", text: spoken }]);
+        setConfirm(data.confirm ?? null);
+
+        if (data.event) {
+          window.dispatchEvent(
+            new CustomEvent("demo:agent-event", { detail: data.event })
+          );
+        }
+
+        await speakLine(spoken, data.audioBase64, data.audioMime, myGen);
+        if (myGen !== genIdRef.current) return;
+
+        if (data.endSession) {
+          hardStopSession();
+          return;
+        }
+
+        if (data.startTour) {
+          await sleep(300);
+          if (myGen !== genIdRef.current) return;
+          await runGuidedTourRef.current();
+          return;
+        }
+
+        resumeListeningAfterSpeech();
+      } catch (err) {
+        if (myGen !== genIdRef.current) return;
+        const name =
+          err && typeof err === "object" && "name" in err
+            ? String((err as { name: string }).name)
+            : "";
+        if (name === "AbortError") return;
+        const detail =
+          err instanceof Error && err.message
+            ? err.message.slice(0, 120)
+            : "error de red";
+        setLog((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: `No pude responder (${detail}). El micrófono sigue en sesión: probá de nuevo.`,
+          },
+        ]);
+        resumeListeningAfterSpeech();
+      } finally {
+        if (myGen === genIdRef.current) {
+          busyRef.current = false;
+          setBusy(false);
+          if (abortRef.current === controller) abortRef.current = null;
+        }
+      }
+    },
+    [
+      hardStopSession,
+      pauseListeningForSpeech,
+      resolveTourChoice,
+      resumeListeningAfterSpeech,
+      sessionId,
+      speakLine,
+      tourChoices,
+    ]
+  );
+
+  handleTextRef.current = handleText;
+
+  const narrate = useCallback(
+    async (id: string, spoken: string) => {
+      let audioBase64: string | undefined;
+      let audioMime: string | undefined;
+      try {
+        if (sessionId) {
+          const res = await fetch("/api/agent/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId,
+              text: `__tour_narrate__:${id}`,
+              narration: spoken,
+            }),
+          });
+          if (res.ok) {
+            const data = (await res.json()) as {
+              audioBase64?: string;
+              audioMime?: string;
+            };
+            audioBase64 = data.audioBase64;
+            audioMime = data.audioMime;
+          }
+        }
+      } catch {
+        // browser TTS fallback
+      }
+      await speakLine(spoken, audioBase64, audioMime);
+    },
+    [sessionId, speakLine]
+  );
+
+  const runGuidedTour = useCallback(async () => {
+    if (tourRunningRef.current) return;
+    tourCancelRef.current = false;
+    tourRunningRef.current = true;
+    setTourRunning(true);
+    const beats = buildDemoTourBeats(pickTourCrop());
+    setTourStep(0);
+    setTourChapter(beats[0]?.chapter || "");
+    setTourChoices(null);
+    queueRef.current = [];
+
+    if (!sessionLiveRef.current) {
+      sessionLiveRef.current = true;
+      setSessionLive(true);
+    }
+    scheduleRestart(80);
+
+    setLog((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        text: "▶ Viaje del productor — en las pausas elegí con un toque o la voz. Decí “parar demo” para cortar.",
+      },
+    ]);
+
+    let lastChoice = "continue";
+    let played = 0;
+
+    for (let i = 0; i < beats.length; i += 1) {
+      const beat = beats[i];
+      if (tourCancelRef.current) break;
+
+      if (beat.skipUnlessChoice && beat.skipUnlessChoice !== lastChoice) {
+        continue;
+      }
+
+      played += 1;
+      setTourStep(played);
+      setTourChapter(beat.chapter);
+
+      if (beat.action) {
+        const event: AgentEvent = {
+          id: `tour-${beat.id}-${Date.now()}`,
+          sessionId: sessionId || "tour",
+          action: beat.action,
+          target: beat.target,
+          payload: beat.payload,
+          createdAt: Date.now(),
+        };
+        window.dispatchEvent(
+          new CustomEvent("demo:agent-event", { detail: event })
+        );
+        await sleep(360);
+      }
+
+      setLog((prev) => [
+        ...prev,
+        { role: "assistant", text: `【${beat.chapter}】 ${beat.spoken}` },
+      ]);
+
+      await narrate(beat.id, beat.spoken);
+      if (tourCancelRef.current) break;
+      await sleep(beat.dwellMs);
+
+      if (beat.pause) {
+        setTourPausePrompt(beat.pause.prompt);
+        setTourChoices(beat.pause.choices);
+        setLog((prev) => [
+          ...prev,
+          { role: "assistant", text: beat.pause!.prompt },
+        ]);
+        await narrate(`${beat.id}-pause`, beat.pause.prompt);
+        if (tourCancelRef.current) break;
+
+        // Open mic only during the choice window (buttons also work).
+        tourPauseListeningRef.current = true;
+        resumeListeningAfterSpeech();
+        const choiceId = await new Promise<string>((resolve) => {
+          tourChoiceResolverRef.current = resolve;
+          window.setTimeout(() => {
+            if (tourChoiceResolverRef.current === resolve) {
+              tourChoiceResolverRef.current = null;
+              setTourChoices(null);
+              setTourPausePrompt("");
+              resolve(beat.pause!.defaultChoiceId);
+            }
+          }, beat.pause!.timeoutMs);
+        });
+        lastChoice = choiceId;
+        tourPauseListeningRef.current = false;
+        pauseListeningForSpeech();
+        const label =
+          beat.pause.choices.find((c) => c.id === choiceId)?.label || choiceId;
+        setLog((prev) => [
+          ...prev,
+          { role: "assistant", text: `→ ${label}` },
+        ]);
+      }
+    }
+
+    tourPauseListeningRef.current = false;
+    tourRunningRef.current = false;
+    setTourRunning(false);
+    setTourStep(0);
+    setTourChapter("");
+    setTourChoices(null);
+    setTourPausePrompt("");
+    setLog((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        text: tourCancelRef.current
+          ? "Listo, frené el recorrido. Seguí preguntándome lo que quieras."
+          : "Fin del recorrido. Pedime un cultivo, el QR, o dictame CUIT y mail para el RUT.",
+      },
+    ]);
+    resumeListeningAfterSpeech();
+  }, [
+    narrate,
+    pauseListeningForSpeech,
+    resumeListeningAfterSpeech,
+    scheduleRestart,
+    sessionId,
+  ]);
+
+  runGuidedTourRef.current = runGuidedTour;
+
+  useEffect(() => {
+    pushToTalkRef.current = pushToTalk;
+    if (pushToTalk) {
+      clearRestartTimer();
+      disposeRecognition(true);
+      setListening(false);
+    } else if (sessionLiveRef.current && !speakingRef.current) {
+      scheduleRestart(200);
+    }
+  }, [pushToTalk, scheduleRestart]);
+
+  useEffect(() => {
+    let timer: number | null = null;
+    const onOfficial = () => {
+      setOfficialHint(true);
+      if (timer) window.clearTimeout(timer);
+      timer = window.setTimeout(() => setOfficialHint(false), 12000);
+    };
+    window.addEventListener("demo:official-toast", onOfficial);
+    return () => {
+      window.removeEventListener("demo:official-toast", onOfficial);
+      if (timer) window.clearTimeout(timer);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sessionLive || pushToTalk) return;
+    const id = window.setInterval(() => {
+      if (!sessionLiveRef.current) return;
+      if (startingRef.current || runningRef.current) return;
+      startEngineRef.current();
+    }, 900);
+    return () => window.clearInterval(id);
+  }, [sessionLive, pushToTalk]);
+
+  useEffect(() => {
+    return () => {
+      hardStopSession();
+    };
+  }, [hardStopSession]);
+
+  if (!sessionId) return null;
+
+  const statusLine = tourRunning
+    ? `Recorrido ${tourStep}/9`
+    : !sessionLive
+      ? voiceMode === "gabi"
+        ? "Voz GABI B lista"
+        : "Guía premium · Mendoza"
+      : speakingUi
+        ? "Hablando · podés interrumpir"
+        : busy
+          ? "Pensando…"
+          : pushToTalk
+            ? "Push-to-talk"
+            : "Te escucho";
+
+  const tourProgress = tourRunning
+    ? Math.round((tourStep / 9) * 100)
+    : 0;
+
+  return (
+    <div className="fixed bottom-4 right-4 z-[60] flex w-[min(100vw-2rem,24rem)] flex-col items-end gap-2">
+      {open ? (
+        <div className="demo-panel-enter w-full overflow-hidden rounded-3xl border border-white/50 bg-white/95 shadow-2xl shadow-mza-blue/25 backdrop-blur-xl">
+          <div className="relative overflow-hidden bg-gradient-to-br from-mza-blue via-mza-blue-light to-[#0b3d91] px-4 py-3.5 text-white">
+            <div className="pointer-events-none absolute -right-6 -top-8 h-28 w-28 rounded-full bg-mza-gold/20 blur-2xl" />
+            <div className="relative flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 text-lg ring-1 ring-white/25 ${
+                    sessionLive && !speakingUi && !pushToTalk
+                      ? "demo-mic-live"
+                      : ""
+                  }`}
+                >
+                  {speakingUi ? "🗣️" : sessionLive ? "🎙️" : "🌱"}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold tracking-tight">
+                    Asistente Agricultura
+                  </p>
+                  <p className="text-[11px] text-sky-100/90">{statusLine}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                className="rounded-full px-2 text-lg leading-none hover:bg-white/10"
+                onClick={() => setOpen(false)}
+                aria-label="Cerrar panel"
+              >
+                ×
+              </button>
+            </div>
+            {tourRunning ? (
+              <div className="relative mt-3">
+                <div className="mb-1 flex items-center justify-between text-[10px] text-sky-100">
+                  <span className="font-semibold">{tourChapter}</span>
+                  <span>
+                    {tourStep}/9
+                  </span>
+                </div>
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/20">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-mza-gold to-emerald-300 transition-all duration-500"
+                    style={{ width: `${tourProgress}%` }}
+                  />
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {officialHint ? (
+            <div className="bg-emerald-50 px-3 py-1.5 text-center text-[11px] font-semibold text-emerald-900">
+              Portal oficial abierto en otra pestaña · yo sigo acá
+            </div>
+          ) : null}
+
+          {sessionLive || speakingUi ? (
+            <div
+              className={`flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold ${
+                speakingUi
+                  ? "bg-sky-50 text-sky-800"
+                  : "bg-emerald-50 text-emerald-800"
+              }`}
+            >
+              {speakingUi ? (
+                <span className="demo-voice-bars text-sky-600" aria-hidden>
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              ) : (
+                <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+              )}
+              <span>
+                {speakingUi
+                  ? "Hablando…"
+                  : pushToTalk
+                    ? "Mantener 🎤 para hablar"
+                    : "Escuchando — hablá con calma"}
+              </span>
+              {interim ? (
+                <span className="max-w-[55%] truncate font-normal italic opacity-80">
+                  “{interim}”
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
+          <div className="max-h-60 space-y-2 overflow-y-auto px-3 py-3 text-sm">
+            {log.map((m, i) => (
+              <div
+                key={`${i}-${m.text.slice(0, 16)}`}
+                className={`rounded-2xl px-3 py-2 leading-relaxed shadow-sm ${
+                  m.role === "user"
+                    ? "ml-8 bg-gradient-to-br from-mza-blue to-mza-blue-light text-white"
+                    : "mr-4 border border-slate-100 bg-slate-50 text-slate-800"
+                }`}
+              >
+                {m.text}
+              </div>
+            ))}
+          </div>
+
+          {tourChoices?.length ? (
+            <div className="border-t border-mza-gold/40 bg-gradient-to-r from-amber-50 to-sky-50 px-3 py-2.5">
+              {tourPausePrompt ? (
+                <p className="mb-2 text-[11px] font-medium text-slate-700">
+                  {tourPausePrompt}
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                {tourChoices.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => resolveTourChoice(c.id, true)}
+                    className="rounded-full bg-mza-blue px-3 py-1.5 text-[11px] font-semibold text-white shadow hover:bg-mza-blue-dark"
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+
+          {confirm?.type === "fill" ? (
+            <div className="flex flex-wrap gap-2 border-t border-amber-100 bg-amber-50/90 px-3 py-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleText("sí, completalo vos")}
+                className="rounded-full bg-mza-blue px-3 py-1.5 text-[11px] font-semibold text-white shadow"
+              >
+                Completalo vos
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleText("lo cargo a mano")}
+                className="rounded-full border border-slate-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-slate-700"
+              >
+                Lo cargo a mano
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleText("mostrame los documentos")}
+                className="rounded-full border border-amber-300 bg-white px-3 py-1.5 text-[11px] font-semibold text-amber-900"
+              >
+                Ver documentos
+              </button>
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap gap-1.5 border-t border-slate-100/80 bg-slate-50/50 px-3 py-2">
+            <button
+              type="button"
+              disabled={busy || tourRunning}
+              onClick={() => {
+                primeOfficialTab();
+                void runGuidedTour();
+              }}
+              className="rounded-full bg-gradient-to-r from-mza-gold/90 to-amber-400 px-2.5 py-1 text-[10px] font-bold text-amber-950 shadow-sm hover:brightness-105 disabled:opacity-50"
+            >
+              ▶ Demo 3 min
+            </button>
+            {SUGGESTIONS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                disabled={busy || tourRunning}
+                onClick={() => {
+                  primeOfficialTab();
+                  if (s === "Demo guiada") {
+                    void runGuidedTour();
+                  } else void handleText(s);
+                }}
+                className="rounded-full border border-slate-200/80 bg-white px-2 py-1 text-[10px] text-slate-600 shadow-sm hover:border-mza-blue/30 hover:text-mza-blue disabled:opacity-50"
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+
+          <form
+            className="flex gap-2 border-t border-slate-100 p-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void handleText(input);
+            }}
+          >
+            {pushToTalk && sessionLive ? (
+              <button
+                type="button"
+                className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow active:bg-emerald-800"
+                onMouseDown={() => startRecognitionEngine()}
+                onMouseUp={() => disposeRecognition(true)}
+                onTouchStart={(e) => {
+                  e.preventDefault();
+                  startRecognitionEngine();
+                }}
+                onTouchEnd={(e) => {
+                  e.preventDefault();
+                  disposeRecognition(true);
+                }}
+                title="Mantener para hablar"
+              >
+                🎤
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (sessionLive) endVoiceSession();
+                  else void startVoiceSession();
+                }}
+                className={`rounded-full px-3 py-2 text-sm font-semibold text-white shadow ${
+                  sessionLive ? "bg-red-600" : "bg-emerald-600"
+                }`}
+                title={
+                  sessionLive ? "Finalizar sesión" : "Iniciar sesión de voz"
+                }
+              >
+                {sessionLive ? "■" : "🎤"}
+              </button>
+            )}
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={
+                sessionLive ? "Escribí o hablá…" : "Escribí o abrí el micrófono…"
+              }
+              className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-mza-blue/20 focus:border-mza-blue focus:ring-2"
+            />
+            <button
+              type="submit"
+              disabled={busy || !input.trim()}
+              className="rounded-full bg-mza-blue px-3.5 py-2 text-sm font-semibold text-white shadow disabled:opacity-40"
+            >
+              Ir
+            </button>
+          </form>
+
+          <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 text-[10px] text-slate-500">
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <input
+                type="checkbox"
+                checked={pushToTalk}
+                onChange={(e) => setPushToTalk(e.target.checked)}
+              />
+              Push-to-talk
+            </label>
+            {sessionLive ? (
+              <button
+                type="button"
+                onClick={endVoiceSession}
+                className="font-semibold text-red-700 hover:underline"
+              >
+                Apagar micrófono
+              </button>
+            ) : (
+              <span className="font-medium text-slate-400">
+                GABI B · Gemini · Mendoza
+              </span>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`rounded-full px-5 py-3 text-sm font-semibold text-white shadow-xl transition hover:scale-[1.02] ${
+          sessionLive
+            ? "demo-mic-live bg-emerald-700"
+            : "bg-gradient-to-r from-mza-blue to-mza-blue-light hover:brightness-110"
+        }`}
+      >
+        {open
+          ? sessionLive
+            ? "Asistente activo"
+            : "Ocultar"
+          : sessionLive
+            ? "Asistente activo"
+            : "Hablar con el asistente"}
+      </button>
+    </div>
+  );
+}

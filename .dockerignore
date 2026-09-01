@@ -1,0 +1,12 @@
+node_modules
+.next
+.git
+.env.local
+.env.production
+*.md
+docs
+agent-transcripts
+.cursor
+npm-debug.log*
+Dockerfile
+docker-compose.yml

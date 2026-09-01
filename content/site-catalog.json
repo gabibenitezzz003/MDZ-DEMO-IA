@@ -1,0 +1,493 @@
+{
+  "sourceUrl": "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/",
+  "title": "Dirección de Agricultura | Producción",
+  "org": {
+    "name": "Dirección de Agricultura",
+    "ministry": "Ministerio de Economía y Energía",
+    "tagline": "Trabajamos en el diseño de herramientas que fortalecen la producción, impulsando una agricultura innovadora, sostenible y competitiva.",
+    "about": "Somos un equipo interdisciplinario de profesionales en Agronomía, Geografía, Geomática, Informática y Ciencias Jurídicas, comprometidos con el desarrollo del sector agrícola y el fortalecimiento de las zonas rurales de la provincia de Mendoza.",
+    "email": "direcciondeagricultura@mendoza.gov.ar",
+    "address": "Casa de Gobierno, 6° piso Cuerpo Central",
+    "footerAddress": "Av. Peltier 351. Ciudad, Mendoza, Argentina"
+  },
+  "director": {
+    "name": "Ing. Agr. Mgter. Alfredo Draque",
+    "title": "Director de Agricultura",
+    "bio": "Magíster en Vitivinicultura y Enología. Posee más de 20 años de trayectoria en el sector vitivinícola, con especial dedicación a la optimización de la eficiencia en el uso de agroquímicos en distintos sistemas productivos."
+  },
+  "institucional": {
+    "mision": "Impulsar el desarrollo agrícola de la provincia mediante programas de asistencia técnica, capacitación e innovación, fortaleciendo a los productores y promoviendo la sostenibilidad.",
+    "vision": "Ser referente en el desarrollo de una agricultura innovadora, sostenible y competitiva que potencie el crecimiento de las zonas rurales y el bienestar de la comunidad.",
+    "funciones": [
+      "Diseñar y ejecutar políticas públicas orientadas al desarrollo agrícola sostenible.",
+      "Brindar asistencia técnica y capacitaciones para mejorar la competitividad y la productividad del sector.",
+      "Promover la innovación, la investigación y la incorporación de tecnologías en los sistemas productivos.",
+      "Impulsar prácticas agrícolas responsables que preserven los recursos naturales y favorezcan la adaptación al cambio climático.",
+      "Coordinar acciones en materia de sanidad vegetal y uso responsable de insumos agropecuarios.",
+      "Favorecer la diversificación de cultivos y el agregado de valor en las cadenas productivas.",
+      "Relevar, sistematizar y difundir información estadística vinculada a la producción y los mercados.",
+      "Implementar programas de desarrollo rural que fortalezcan las comunidades agrícolas.",
+      "Articular con municipios, organismos nacionales e internacionales, instituciones académicas y el sector privado.",
+      "Promover la inserción y consolidación de la producción agrícola en los mercados locales e internacionales."
+    ],
+    "normativa": [
+      {
+        "grupo": "Sostenibilidad",
+        "items": [
+          "Decreto 1189 PROGRAMA DE SOSTENIBILIDAD AGRICOLA",
+          "Ley 9579 DIFUSION DE DATOS DE ACTIVIDADES AGROPECUARIAS"
+        ]
+      },
+      {
+        "grupo": "Buenas Prácticas Agrícolas",
+        "items": [
+          "Código alimentario ART 154 BPA",
+          "Resolución SENASA SA 510"
+        ]
+      },
+      {
+        "grupo": "FIDA",
+        "items": [
+          "Decreto 2043",
+          "Ley 6832",
+          "Ley 9000 (modificación)"
+        ]
+      },
+      {
+        "grupo": "FIDEC",
+        "items": [
+          "Decreto 1446",
+          "Ley 9353"
+        ]
+      },
+      {
+        "grupo": "Inversiones Forestales",
+        "items": [
+          "Ley 9300 – ADHESION LEY 25080",
+          "Ley 25080 - INVERSIONES PARA BOSQUES CULTIVADOS",
+          "Ley 27487 - INVERSIONES FORESTALES (modifica 25080)"
+        ]
+      },
+      {
+        "grupo": "Producción Orgánica",
+        "items": [
+          "Ley 25127 - PRODUCCION ECOLOGICA, BIOLOGICA U ORGANICA",
+          "Ley 27734 - PROMOCIÓN DE LA PRODUCCIÓN ORGÁNICA PARA ECONOMÍAS REGIONALES"
+        ]
+      },
+      {
+        "grupo": "RUT",
+        "items": [
+          "Ley 4438 RUT",
+          "Decreto 229 RUT"
+        ]
+      },
+      {
+        "grupo": "Vitivinicultura",
+        "items": [
+          "Ley 9245 BANCO DE VINOS",
+          "Ley 14878 INV"
+        ]
+      }
+    ]
+  },
+  "sections": [
+    {
+      "id": "autoridades",
+      "title": "Autoridades",
+      "group": "institucional",
+      "keywords": [
+        "director",
+        "autoridades",
+        "alfredo draque"
+      ]
+    },
+    {
+      "id": "mision",
+      "title": "Misión",
+      "group": "institucional",
+      "keywords": [
+        "misión",
+        "mision"
+      ]
+    },
+    {
+      "id": "vision",
+      "title": "Visión",
+      "group": "institucional",
+      "keywords": [
+        "visión",
+        "vision"
+      ]
+    },
+    {
+      "id": "funcion",
+      "title": "Función",
+      "group": "institucional",
+      "keywords": [
+        "función",
+        "funciones"
+      ]
+    },
+    {
+      "id": "normativa",
+      "title": "Normativa Legal",
+      "group": "institucional",
+      "keywords": [
+        "normativa",
+        "leyes",
+        "decretos"
+      ]
+    },
+    {
+      "id": "tramites",
+      "title": "Trámites",
+      "group": "tramites",
+      "keywords": [
+        "trámites",
+        "tramites"
+      ]
+    },
+    {
+      "id": "rut",
+      "title": "RUT",
+      "group": "tramites",
+      "summary": "Registro Único de Tierras. Inscripción y declaración jurada a través del Sistema de Información Agrícola (SIA).",
+      "externalUrl": "https://sia.mendoza.gov.ar/account/login",
+      "keywords": [
+        "rut",
+        "registro",
+        "sia",
+        "declaración jurada",
+        "inscripción"
+      ]
+    },
+    {
+      "id": "publicaciones-ia",
+      "title": "Consultas de publicaciones oficiales con IA",
+      "group": "publicaciones",
+      "keywords": [
+        "publicaciones",
+        "informes",
+        "ia"
+      ]
+    },
+    {
+      "id": "economia-regional",
+      "title": "Economía regional",
+      "group": "publicaciones",
+      "summary": "Informes y análisis de economía regional agropecuaria.",
+      "keywords": [
+        "economía",
+        "economia regional"
+      ]
+    },
+    {
+      "id": "manejo-hidrico",
+      "title": "Manejo Hídrico",
+      "group": "publicaciones",
+      "summary": "Información sobre manejo del agua en sistemas productivos.",
+      "keywords": [
+        "agua",
+        "hídrico",
+        "hidrico",
+        "riego"
+      ]
+    },
+    {
+      "id": "fruticultura",
+      "title": "Fruticultura",
+      "group": "publicaciones",
+      "summary": "Publicaciones e informes del sector frutícola.",
+      "keywords": [
+        "fruticultura",
+        "fruta"
+      ]
+    },
+    {
+      "id": "horticultura",
+      "title": "Horticultura",
+      "group": "publicaciones",
+      "summary": "Publicaciones e informes del sector hortícola.",
+      "keywords": [
+        "horticultura",
+        "hortalizas"
+      ]
+    },
+    {
+      "id": "frutos-secos",
+      "title": "Frutos Secos",
+      "group": "publicaciones",
+      "summary": "Información sobre frutos secos en Mendoza.",
+      "keywords": [
+        "frutos secos",
+        "nuez",
+        "almendra"
+      ]
+    },
+    {
+      "id": "cultivos-fruticolas",
+      "title": "Cultivos Frutícolas",
+      "group": "cultivos",
+      "keywords": [
+        "cultivos",
+        "frutales"
+      ]
+    },
+    {
+      "id": "durazno",
+      "title": "Durazno Industria",
+      "group": "cultivos",
+      "summary": "Informes, tableros e índices tecnológicos del durazno para industria.",
+      "keywords": [
+        "durazno",
+        "industria"
+      ]
+    },
+    {
+      "id": "ciruela",
+      "title": "Ciruela",
+      "group": "cultivos",
+      "summary": "Informes tecnológicos, pronóstico de cosecha y reportes de ciruela.",
+      "keywords": [
+        "ciruela"
+      ]
+    },
+    {
+      "id": "cereza",
+      "title": "Cereza",
+      "group": "cultivos",
+      "summary": "Información productiva y reportes de cereza.",
+      "keywords": [
+        "cereza"
+      ]
+    },
+    {
+      "id": "vid",
+      "title": "Vid",
+      "group": "cultivos",
+      "summary": "Información vinculada a vid y viticultura.",
+      "keywords": [
+        "vid",
+        "uva",
+        "viticultura",
+        "vino"
+      ]
+    },
+    {
+      "id": "fenologia",
+      "title": "Fenología",
+      "group": "cultivos",
+      "summary": "Estadios del cultivo a lo largo del año.",
+      "keywords": [
+        "fenología",
+        "fenologia",
+        "estadios",
+        "calendario"
+      ]
+    },
+    {
+      "id": "cultivos-horticolas",
+      "title": "Cultivos Hortícolas",
+      "group": "cultivos",
+      "keywords": [
+        "hortícolas",
+        "horticolas"
+      ]
+    },
+    {
+      "id": "ajo",
+      "title": "Ajo",
+      "group": "cultivos",
+      "summary": "Informes y datos productivos de ajo.",
+      "keywords": [
+        "ajo"
+      ]
+    },
+    {
+      "id": "tomate",
+      "title": "Tomate Industria",
+      "group": "cultivos",
+      "summary": "Informes y datos productivos de tomate para industria.",
+      "keywords": [
+        "tomate",
+        "industria"
+      ]
+    },
+    {
+      "id": "cinturon-verde",
+      "title": "Cinturón Verde",
+      "group": "cultivos",
+      "summary": "Información del cinturón verde mendocino.",
+      "keywords": [
+        "cinturón verde",
+        "cinturon verde"
+      ]
+    },
+    {
+      "id": "monitoreo-heladas",
+      "title": "Monitoreo de heladas",
+      "group": "monitoreo",
+      "summary": "Herramientas y tableros de monitoreo de heladas.",
+      "keywords": [
+        "heladas",
+        "hielo",
+        "frost"
+      ]
+    },
+    {
+      "id": "monitoreo-catas",
+      "title": "Monitoreo de Catas",
+      "group": "monitoreo",
+      "summary": "Control sugerido y legislación relacionada a catas.",
+      "keywords": [
+        "catas",
+        "control",
+        "legislación"
+      ]
+    },
+    {
+      "id": "herramientas",
+      "title": "Herramientas digitales agrícolas",
+      "group": "herramientas",
+      "keywords": [
+        "herramientas",
+        "digitales",
+        "tablero"
+      ]
+    },
+    {
+      "id": "agrometeorologia",
+      "title": "Agrometeorología",
+      "group": "herramientas",
+      "summary": "Datos y herramientas agrometeorológicas.",
+      "keywords": [
+        "agrometeorología",
+        "clima",
+        "meteo"
+      ]
+    },
+    {
+      "id": "mapas-agricolas",
+      "title": "Mapas Agrícolas",
+      "group": "herramientas",
+      "summary": "Mapas agrícolas de la provincia de Mendoza.",
+      "keywords": [
+        "mapas",
+        "mapa agrícola",
+        "cartografía"
+      ]
+    },
+    {
+      "id": "estaciones",
+      "title": "Red de Estaciones Meteorológicas",
+      "group": "herramientas",
+      "summary": "Red de estaciones meteorológicas agrícolas.",
+      "keywords": [
+        "estaciones",
+        "meteorológicas"
+      ]
+    },
+    {
+      "id": "visor-agricola",
+      "title": "Visor Agrícola",
+      "group": "herramientas",
+      "summary": "Visor geoespacial agrícola.",
+      "keywords": [
+        "visor",
+        "mapa",
+        "gis"
+      ]
+    },
+    {
+      "id": "radar",
+      "title": "Radar meteorológico",
+      "group": "herramientas",
+      "summary": "Acceso a radar meteorológico.",
+      "keywords": [
+        "radar",
+        "tormenta",
+        "granizo"
+      ]
+    },
+    {
+      "id": "eventos-meteo",
+      "title": "Análisis de eventos meteorológicos",
+      "group": "herramientas",
+      "summary": "Análisis de eventos meteorológicos relevantes para la producción.",
+      "keywords": [
+        "eventos",
+        "meteorológicos",
+        "análisis"
+      ]
+    },
+    {
+      "id": "bpa-herramienta",
+      "title": "Buenas Prácticas Agrícolas",
+      "group": "herramientas",
+      "summary": "Herramientas y recursos de Buenas Prácticas Agrícolas.",
+      "keywords": [
+        "bpa",
+        "buenas prácticas"
+      ]
+    },
+    {
+      "id": "precios",
+      "title": "Relevamiento de precios",
+      "group": "precios",
+      "summary": "Información clara y actualizada sobre precios al consumidor final de hortalizas, frutas y huevos en Mendoza. Informes semanales.",
+      "keywords": [
+        "precios",
+        "mercado",
+        "consumidor"
+      ]
+    },
+    {
+      "id": "odk-collect",
+      "title": "ODK Collect · código QR",
+      "group": "tramites",
+      "summary": "App Android para formularios en campo. El QR configura el proyecto: Agregar proyecto y escanear QR. No es un link web. En la demo hay un facsimil educativo embebido.",
+      "keywords": [
+        "odk",
+        "qr",
+        "código qr",
+        "collect",
+        "agregar proyecto",
+        "formulario celular",
+        "relevamiento campo"
+      ]
+    },
+    {
+      "id": "capacitaciones",
+      "title": "Capacitaciones",
+      "group": "capacitaciones",
+      "keywords": [
+        "capacitaciones",
+        "cursos",
+        "formación"
+      ]
+    },
+    {
+      "id": "capacitacion-bpa",
+      "title": "Buenas Prácticas Agrícolas (capacitación)",
+      "group": "capacitaciones",
+      "summary": "Capacitación en BPA para producción sostenible, eficiente y responsable.",
+      "keywords": [
+        "bpa",
+        "capacitación bpa",
+        "inscripción"
+      ]
+    },
+    {
+      "id": "encargado-finca",
+      "title": "Encargado de Finca",
+      "group": "capacitaciones",
+      "summary": "Programa de capacitación para encargados de cultivos frutícolas, hortícolas y vitícolas.",
+      "keywords": [
+        "encargado",
+        "finca",
+        "capacitación"
+      ]
+    }
+  ]
+}

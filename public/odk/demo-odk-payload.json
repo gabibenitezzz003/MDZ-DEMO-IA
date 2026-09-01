@@ -1,0 +1,16 @@
+{
+  "general": {
+    "server_url": "https://demo-odk.agricultura.mendoza.gob.ar",
+    "username": "demo_productor",
+    "protocol": "odk_aggregate"
+  },
+  "project": {
+    "name": "DEMO · Dirección de Agricultura Mendoza",
+    "demo": true
+  },
+  "_meta": {
+    "tipo": "facsimil_educativo_ODK_Collect",
+    "nota": "NO es el QR oficial. Sirve para mostrar qué configura 'Agregar proyecto → Escanear QR'. El oficial apunta al servidor real de formularios de la Dirección.",
+    "uso": "ODK Collect (Android) → Agregar proyecto → Escanear código QR"
+  }
+}

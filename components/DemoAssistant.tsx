@@ -74,13 +74,42 @@ function normalizeHeard(text: string) {
 function looksLikeEcho(heard: string, spoken: string) {
   const a = normalizeHeard(heard);
   const b = normalizeHeard(spoken);
-  if (!a || a.length < 4 || !b) return false;
-  if (b.includes(a) || a.includes(b.slice(0, Math.min(b.length, 40)))) return true;
-  const aw = new Set(a.split(" ").filter((w) => w.length > 3));
-  if (!aw.size) return false;
+  if (!a || a.length < 3 || !b) return false;
+  if (a === b) return true;
+  if (b.includes(a) || a.includes(b)) return true;
+  const head = b.slice(0, Math.min(b.length, 56));
+  const tail = b.slice(Math.max(0, b.length - 56));
+  if (a.includes(head) || a.includes(tail) || head.includes(a) || tail.includes(a)) {
+    return true;
+  }
+  const aw = a.split(" ").filter((w) => w.length > 2);
+  if (!aw.length) return false;
   let hit = 0;
   for (const w of aw) if (b.includes(w)) hit += 1;
-  return hit / aw.size >= 0.7;
+  return hit / aw.length >= 0.55;
+}
+
+function isNearDuplicateHeard(aRaw: string, bRaw: string) {
+  const a = normalizeHeard(aRaw);
+  const b = normalizeHeard(bRaw);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+  const aw = a.split(" ").filter((w) => w.length > 2);
+  const bw = b.split(" ").filter((w) => w.length > 2);
+  if (!aw.length || !bw.length) return false;
+  const setB = new Set(bw);
+  let hit = 0;
+  for (const w of aw) if (setB.has(w)) hit += 1;
+  return hit / Math.max(aw.length, bw.length) >= 0.72;
+}
+
+function base64ToBlobUrl(audioBase64: string, mime = "audio/mpeg") {
+  const binary = atob(audioBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  const blob = new Blob([bytes], { type: mime });
+  return URL.createObjectURL(blob);
 }
 
 function playAudioBase64(
@@ -88,28 +117,46 @@ function playAudioBase64(
   mime = "audio/mpeg",
   onEnd?: () => void
 ) {
-  const audio = new Audio(`data:${mime};base64,${audioBase64}`);
+  const objectUrl = base64ToBlobUrl(audioBase64, mime);
+  const audio = new Audio(objectUrl);
   let finished = false;
   let safety = 0;
   const done = () => {
     if (finished) return;
     finished = true;
     if (safety) window.clearTimeout(safety);
+    try {
+      URL.revokeObjectURL(objectUrl);
+    } catch {
+      // ignore
+    }
     onEnd?.();
   };
-  // Expose so stopAudio can resolve the waiter instead of hanging the tour.
-  (audio as HTMLAudioElement & { __demoDone?: () => void }).__demoDone = done;
+  (audio as HTMLAudioElement & { __demoDone?: () => void; __blobUrl?: string }).__demoDone =
+    done;
+  (
+    audio as HTMLAudioElement & { __demoDone?: () => void; __blobUrl?: string }
+  ).__blobUrl = objectUrl;
   audio.onended = done;
   audio.onerror = done;
+  audio.preload = "auto";
+  const armSafety = () => {
+    const durMs =
+      Number.isFinite(audio.duration) && audio.duration > 0
+        ? Math.ceil(audio.duration * 1000) + 2500
+        : 40000;
+    if (safety) window.clearTimeout(safety);
+    safety = window.setTimeout(done, durMs);
+  };
+  audio.onloadedmetadata = armSafety;
   void audio.play().then(undefined, (err: unknown) => {
-    // AbortError when we pause/replace audio mid-play — stopAudio will finish.
     const name =
       err && typeof err === "object" && "name" in err
         ? String((err as { name: string }).name)
         : "";
     if (name !== "AbortError") done();
   });
-  safety = window.setTimeout(done, 35000);
+  safety = window.setTimeout(done, 40000);
   return audio;
 }
 
@@ -131,12 +178,18 @@ function speakBrowser(text: string, onEnd?: () => void) {
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "es-AR";
-  u.rate = 0.96;
+  u.rate = 0.94;
+  u.pitch = 1;
+  const voices = window.speechSynthesis.getVoices();
+  const preferred =
+    voices.find((v) => /es-AR/i.test(v.lang)) ||
+    voices.find((v) => /es-MX|es-ES|es_/i.test(v.lang) && /female|paulina|sabina|lucia|google/i.test(v.name)) ||
+    voices.find((v) => /^es/i.test(v.lang));
+  if (preferred) u.voice = preferred;
   u.onend = done;
   u.onerror = done;
   window.speechSynthesis.speak(u);
-  // Safety after estimated duration — must NOT fire before speech ends.
-  safety = window.setTimeout(done, estimateSpeechMs(text) + 4000);
+  safety = window.setTimeout(done, estimateSpeechMs(text) + 5000);
 }
 
 function sleep(ms: number) {
@@ -209,7 +262,9 @@ export function DemoAssistant() {
   const genIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastSpokenRef = useRef("");
+  const lastSpokenUntilRef = useRef(0);
   const bargeArmedRef = useRef(false);
+  const bargeInFlightRef = useRef(false);
   const tourCropIdRef = useRef<string>("ciruela");
   const tourOfficialUrlRef = useRef<string>(OFFICIAL_PORTAL);
 
@@ -252,9 +307,11 @@ export function DemoAssistant() {
     const audio = audioRef.current;
     audioRef.current = null;
     if (audio) {
-      const finish = (
-        audio as HTMLAudioElement & { __demoDone?: () => void }
-      ).__demoDone;
+      const tagged = audio as HTMLAudioElement & {
+        __demoDone?: () => void;
+        __blobUrl?: string;
+      };
+      const finish = tagged.__demoDone;
       audio.onended = null;
       audio.onerror = null;
       try {
@@ -264,7 +321,13 @@ export function DemoAssistant() {
       } catch {
         // ignore cleanup races
       }
-      // Resolve the previous speakLine waiter (tour / barge-in).
+      if (tagged.__blobUrl) {
+        try {
+          URL.revokeObjectURL(tagged.__blobUrl);
+        } catch {
+          // ignore
+        }
+      }
       finish?.();
     }
     if (!keepSpeakingFlag) {
@@ -280,6 +343,7 @@ export function DemoAssistant() {
     restartTimerRef.current = window.setTimeout(() => {
       restartTimerRef.current = null;
       if (!sessionLiveRef.current) return;
+      if (tourRunningRef.current) return;
       if (pushToTalkRef.current) return;
       startEngineRef.current();
     }, delayMs);
@@ -287,6 +351,7 @@ export function DemoAssistant() {
 
   const startRecognitionEngine = useCallback(() => {
     if (!sessionLiveRef.current) return;
+    if (tourRunningRef.current) return;
     if (pushToTalkRef.current) return;
     if (startingRef.current || runningRef.current) return;
     if (Date.now() - lastStartAtRef.current < 250) {
@@ -326,34 +391,56 @@ export function DemoAssistant() {
       const liveTrim = live.trim();
       if (liveTrim) setInterim(liveTrim);
 
+      const echoWindowOpen = Date.now() < lastSpokenUntilRef.current;
+      const spoken = lastSpokenRef.current;
+
+      // Cortá el audio apenas se escucha voz real (no eco). El turno se manda
+      // solo cuando el STT marca final — evita duplicar interim + final.
+      if (speakingRef.current && liveTrim.length >= 5) {
+        const isEcho = looksLikeEcho(liveTrim, spoken);
+        if (!isEcho && (bargeArmedRef.current || liveTrim.length >= 9)) {
+          bargeInFlightRef.current = true;
+          stopAudio();
+          speakingRef.current = false;
+          setSpeakingUi(false);
+        }
+      }
+
       const done = finalText.trim();
-      const candidate = done || (liveTrim.length >= 12 ? liveTrim : "");
-      if (!candidate) return;
+      if (!done) return;
 
       if (
-        (speakingRef.current || busyRef.current) &&
-        looksLikeEcho(candidate, lastSpokenRef.current)
+        (speakingRef.current || busyRef.current || echoWindowOpen || bargeInFlightRef.current) &&
+        looksLikeEcho(done, spoken)
       ) {
+        setInterim("");
         return;
       }
 
-      if (speakingRef.current || busyRef.current) {
-        if (!done && liveTrim.length < 8) return;
-        if (!bargeArmedRef.current && speakingRef.current) return;
+      if (speakingRef.current && !bargeArmedRef.current && !bargeInFlightRef.current) {
+        return;
+      }
+
+      if (speakingRef.current) {
+        stopAudio();
+        speakingRef.current = false;
+        setSpeakingUi(false);
       }
 
       const now = Date.now();
-      const key = candidate.toLowerCase();
       if (
-        key === lastHeardTextRef.current &&
-        now - lastHeardAtRef.current < 1600
+        lastHeardTextRef.current &&
+        now - lastHeardAtRef.current < 4200 &&
+        isNearDuplicateHeard(done, lastHeardTextRef.current)
       ) {
+        setInterim("");
         return;
       }
-      lastHeardTextRef.current = key;
+      lastHeardTextRef.current = normalizeHeard(done) || done.toLowerCase();
       lastHeardAtRef.current = now;
+      bargeInFlightRef.current = false;
       setInterim("");
-      void handleTextRef.current(candidate);
+      void handleTextRef.current(done);
     };
 
     rec.onerror = (ev) => {
@@ -425,11 +512,12 @@ export function DemoAssistant() {
     setSpeakingUi(true);
     setInterim("");
     bargeArmedRef.current = false;
+    bargeInFlightRef.current = false;
     window.setTimeout(() => {
       bargeArmedRef.current = true;
-    }, 450);
+    }, 120);
     if (!runningRef.current && !pushToTalkRef.current) {
-      scheduleRestart(80);
+      scheduleRestart(60);
     }
   }, [scheduleRestart]);
 
@@ -437,12 +525,13 @@ export function DemoAssistant() {
     speakingRef.current = false;
     setSpeakingUi(false);
     bargeArmedRef.current = false;
+    bargeInFlightRef.current = false;
     if (!sessionLiveRef.current) return;
     if (pushToTalkRef.current) {
       setListening(false);
       return;
     }
-    scheduleRestart(120);
+    scheduleRestart(100);
   }, [scheduleRestart]);
 
   const hardStopSession = useCallback(() => {
@@ -524,7 +613,7 @@ export function DemoAssistant() {
         speakWaiterRef.current = done;
         const safety = window.setTimeout(
           done,
-          audioBase64 ? 28000 : estimateSpeechMs(spoken) + 2500
+          audioBase64 ? 45000 : estimateSpeechMs(spoken) + 3500
         );
 
         if (genId != null && genId !== genIdRef.current) {
@@ -533,15 +622,23 @@ export function DemoAssistant() {
         }
 
         lastSpokenRef.current = spoken;
+        lastSpokenUntilRef.current =
+          Date.now() + estimateSpeechMs(spoken) + 1200;
         speakingRef.current = true;
         setSpeakingUi(true);
         bargeArmedRef.current = false;
+        bargeInFlightRef.current = false;
         window.setTimeout(() => {
           bargeArmedRef.current = true;
-        }, 180);
+        }, 100);
         stopAudio(true);
-        if (!runningRef.current && sessionLiveRef.current && !pushToTalkRef.current) {
-          scheduleRestart(80);
+        if (
+          !tourRunningRef.current &&
+          !runningRef.current &&
+          sessionLiveRef.current &&
+          !pushToTalkRef.current
+        ) {
+          scheduleRestart(60);
         }
 
         if (audioBase64) {
@@ -562,17 +659,34 @@ export function DemoAssistant() {
   );
 
   const resolveTourChoice = useCallback((id: string, fromGesture = false) => {
-    if (id === "official") {
-      const url = tourOfficialUrlRef.current || officialUrlFor(tourCropIdRef.current);
+    const openOnGesture: Record<string, { url: string; title: string; sectionId: string }> = {
+      official: {
+        url: tourOfficialUrlRef.current || officialUrlFor(tourCropIdRef.current),
+        title: `Oficial · ${tourCropIdRef.current}`,
+        sectionId: tourCropIdRef.current,
+      },
+      radar: {
+        url: officialUrlFor("radar"),
+        title: "Radar meteorológico",
+        sectionId: "radar",
+      },
+      sia: {
+        url: "https://sia.mendoza.gov.ar/account/login",
+        title: "SIA · RUT oficial",
+        sectionId: "rut",
+      },
+    };
+    const external = openOnGesture[id];
+    if (external) {
       const opened = fromGesture
-        ? openOfficialFromUserGesture(url)
-        : navigateOfficialTab(url);
+        ? openOfficialFromUserGesture(external.url)
+        : navigateOfficialTab(external.url);
       window.dispatchEvent(
         new CustomEvent("demo:official-toast", {
           detail: {
-            url,
-            title: `Oficial · ${tourCropIdRef.current}`,
-            sectionId: tourCropIdRef.current,
+            url: external.url,
+            title: external.title,
+            sectionId: external.sectionId,
             blocked: !opened,
           },
         })
@@ -585,34 +699,46 @@ export function DemoAssistant() {
     resolver?.(id);
   }, []);
 
+  const resumeMicAfterTourRef = useRef(false);
+
+  const stopGuidedTour = useCallback(() => {
+    if (!tourRunningRef.current) return;
+    tourCancelRef.current = true;
+    const resolver = tourChoiceResolverRef.current;
+    tourChoiceResolverRef.current = null;
+    setTourChoices(null);
+    setTourPausePrompt("");
+    stopAudio();
+    resolver?.("continue");
+  }, []);
+
   const handleText = useCallback(
     async (raw: string, opts?: { silentUser?: boolean }) => {
       const text = raw.trim();
       if (!text || !sessionId) return;
 
-      if (tourRunningRef.current && tourChoices && tourChoiceResolverRef.current) {
+      if (tourRunningRef.current) {
         if (wantsStopTour(text)) {
-          tourCancelRef.current = true;
-          resolveTourChoice(tourChoices[0]?.id || "continue");
+          stopGuidedTour();
           return;
         }
-        const choiceId = matchTourChoice(text, tourChoices);
-        if (choiceId) {
-          if (!opts?.silentUser) {
-            setLog((prev) => [...prev, { role: "user", text }]);
+        if (tourChoices && tourChoiceResolverRef.current) {
+          const choiceId = matchTourChoice(text, tourChoices);
+          if (choiceId) {
+            if (!opts?.silentUser) {
+              setLog((prev) => [...prev, { role: "user", text }]);
+            }
+            stopAudio();
+            resolveTourChoice(choiceId, true);
           }
-          stopAudio();
-          resolveTourChoice(choiceId, true);
-          return;
         }
-        if (tourPauseListeningRef.current) {
-          return;
-        }
-        tourCancelRef.current = true;
+        return;
       }
 
       abortRef.current?.abort();
       stopAudio();
+      speakingRef.current = false;
+      setSpeakingUi(false);
       const myGen = ++genIdRef.current;
       const controller = new AbortController();
       abortRef.current = controller;
@@ -621,11 +747,20 @@ export function DemoAssistant() {
       busyRef.current = true;
       setBusy(true);
       if (!opts?.silentUser) {
-        setLog((prev) => [...prev, { role: "user", text }]);
+        setLog((prev) => {
+          const last = prev[prev.length - 1];
+          if (
+            last?.role === "user" &&
+            isNearDuplicateHeard(last.text, text) &&
+            Date.now() - lastHeardAtRef.current < 5000
+          ) {
+            return prev;
+          }
+          return [...prev, { role: "user", text }];
+        });
       }
       setInput("");
       setConfirm(null);
-      pauseListeningForSpeech();
 
       try {
         if (wantsStopTour(text)) {
@@ -721,47 +856,66 @@ export function DemoAssistant() {
     },
     [
       hardStopSession,
-      pauseListeningForSpeech,
       resolveTourChoice,
       resumeListeningAfterSpeech,
       sessionId,
       speakLine,
+      stopGuidedTour,
       tourChoices,
     ]
   );
 
   handleTextRef.current = handleText;
 
-  const narrate = useCallback(
-    async (id: string, spoken: string) => {
-      let audioBase64: string | undefined;
-      let audioMime: string | undefined;
+  type TourAudio = {
+    spoken: string;
+    audioBase64?: string;
+    audioMime?: string;
+  };
+
+  const fetchTourAudio = useCallback(
+    async (id: string, spoken: string): Promise<TourAudio> => {
       try {
-        if (sessionId) {
-          const res = await fetch("/api/agent/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sessionId,
-              text: `__tour_narrate__:${id}`,
-              narration: spoken,
-            }),
-          });
-          if (res.ok) {
-            const data = (await res.json()) as {
-              audioBase64?: string;
-              audioMime?: string;
-            };
-            audioBase64 = data.audioBase64;
-            audioMime = data.audioMime;
-          }
-        }
+        if (!sessionId) return { spoken };
+        const res = await fetch("/api/agent/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            text: `__tour_narrate__:${id}`,
+            narration: spoken,
+          }),
+        });
+        if (!res.ok) return { spoken };
+        const data = (await res.json()) as {
+          spoken?: string;
+          audioBase64?: string;
+          audioMime?: string;
+        };
+        return {
+          spoken: data.spoken || spoken,
+          audioBase64: data.audioBase64,
+          audioMime: data.audioMime,
+        };
       } catch {
-        // browser TTS fallback
+        return { spoken };
       }
-      await speakLine(spoken, audioBase64, audioMime);
     },
-    [sessionId, speakLine]
+    [sessionId]
+  );
+
+  const narrate = useCallback(
+    async (id: string, spoken: string, prefetched?: Promise<TourAudio> | TourAudio) => {
+      const audio = prefetched
+        ? await prefetched
+        : await fetchTourAudio(id, spoken);
+      await speakLine(
+        audio.spoken || spoken,
+        audio.audioBase64,
+        audio.audioMime
+      );
+    },
+    [fetchTourAudio, speakLine]
   );
 
   const runGuidedTour = useCallback(async () => {
@@ -769,6 +923,23 @@ export function DemoAssistant() {
     tourCancelRef.current = false;
     tourRunningRef.current = true;
     setTourRunning(true);
+
+    // Demo 3 min = solo botones + narración. Mic apagado para que no trabe ni interrumpa.
+    resumeMicAfterTourRef.current = sessionLiveRef.current;
+    clearRestartTimer();
+    disposeRecognition(true);
+    setListening(false);
+    setInterim("");
+    sessionLiveRef.current = false;
+    setSessionLive(false);
+    speakingRef.current = false;
+    setSpeakingUi(false);
+    busyRef.current = false;
+    setBusy(false);
+    abortRef.current?.abort();
+    abortRef.current = null;
+    genIdRef.current += 1;
+
     const crop = pickTourCrop();
     tourCropIdRef.current = crop.id;
     tourOfficialUrlRef.current = officialUrlFor(crop.id);
@@ -776,24 +947,37 @@ export function DemoAssistant() {
     setTourStep(0);
     setTourChapter(beats[0]?.chapter || "");
     setTourChoices(null);
+    setTourPausePrompt("");
     queueRef.current = [];
-
-    if (!sessionLiveRef.current) {
-      sessionLiveRef.current = true;
-      setSessionLive(true);
-    }
-    scheduleRestart(80);
 
     setLog((prev) => [
       ...prev,
       {
         role: "assistant",
-        text: "▶ Viaje del productor — en las pausas elegí con un toque o la voz. Decí “parar demo” para cortar.",
+        text: "▶ Demo 3 min — recorrido fluido. El micrófono queda apagado: en las pausas tocá un botón para seguir o abrir enlaces.",
       },
     ]);
 
     let lastChoice = "continue";
     let played = 0;
+
+    const nextPlayableIndex = (from: number, choice: string) => {
+      for (let j = from; j < beats.length; j += 1) {
+        const b = beats[j];
+        if (b.skipUnlessChoice && b.skipUnlessChoice !== choice) continue;
+        return j;
+      }
+      return -1;
+    };
+
+    let pendingAudio: Promise<TourAudio> | null = null;
+    const firstIdx = nextPlayableIndex(0, lastChoice);
+    if (firstIdx >= 0) {
+      pendingAudio = fetchTourAudio(
+        beats[firstIdx].id,
+        beats[firstIdx].spoken
+      );
+    }
 
     for (let i = 0; i < beats.length; i += 1) {
       const beat = beats[i];
@@ -807,6 +991,26 @@ export function DemoAssistant() {
       setTourStep(played);
       setTourChapter(beat.chapter);
 
+      const audioPromise =
+        pendingAudio || fetchTourAudio(beat.id, beat.spoken);
+      pendingAudio = null;
+
+      let pauseAudioPromise: Promise<TourAudio> | null = null;
+      if (beat.pause) {
+        pauseAudioPromise = fetchTourAudio(
+          `${beat.id}-pause`,
+          beat.pause.prompt
+        );
+      } else {
+        const nextIdx = nextPlayableIndex(i + 1, lastChoice);
+        if (nextIdx >= 0) {
+          pendingAudio = fetchTourAudio(
+            beats[nextIdx].id,
+            beats[nextIdx].spoken
+          );
+        }
+      }
+
       if (beat.action) {
         const event: AgentEvent = {
           id: `tour-${beat.id}-${Date.now()}`,
@@ -819,7 +1023,6 @@ export function DemoAssistant() {
         window.dispatchEvent(
           new CustomEvent("demo:agent-event", { detail: event })
         );
-        await sleep(220);
       }
 
       setLog((prev) => [
@@ -827,8 +1030,7 @@ export function DemoAssistant() {
         { role: "assistant", text: `【${beat.chapter}】 ${beat.spoken}` },
       ]);
 
-      await narrate(beat.id, beat.spoken);
-      resumeListeningAfterSpeech();
+      await narrate(beat.id, beat.spoken, audioPromise);
       if (tourCancelRef.current) break;
       await sleep(beat.dwellMs);
 
@@ -839,56 +1041,77 @@ export function DemoAssistant() {
           ...prev,
           { role: "assistant", text: beat.pause!.prompt },
         ]);
-        tourPauseListeningRef.current = true;
-        resumeListeningAfterSpeech();
+        tourPauseListeningRef.current = false;
         const choicePromise = new Promise<string>((resolve) => {
           tourChoiceResolverRef.current = resolve;
-          window.setTimeout(() => {
-            if (tourChoiceResolverRef.current === resolve) {
-              tourChoiceResolverRef.current = null;
-              setTourChoices(null);
-              setTourPausePrompt("");
-              resolve(beat.pause!.defaultChoiceId);
-            }
-          }, beat.pause!.timeoutMs);
         });
-        void narrate(`${beat.id}-pause`, beat.pause.prompt);
+        void narrate(
+          `${beat.id}-pause`,
+          beat.pause.prompt,
+          pauseAudioPromise || undefined
+        );
         const choiceId = await choicePromise;
         if (tourCancelRef.current) break;
         lastChoice = choiceId;
-        tourPauseListeningRef.current = false;
         stopAudio();
-        pauseListeningForSpeech();
         const label =
           beat.pause.choices.find((c) => c.id === choiceId)?.label || choiceId;
         setLog((prev) => [
           ...prev,
           { role: "assistant", text: `→ ${label}` },
         ]);
+        const nextIdx = nextPlayableIndex(i + 1, lastChoice);
+        if (nextIdx >= 0) {
+          pendingAudio = fetchTourAudio(
+            beats[nextIdx].id,
+            beats[nextIdx].spoken
+          );
+        }
+        await sleep(120);
       }
     }
 
     tourPauseListeningRef.current = false;
+    tourChoiceResolverRef.current = null;
     tourRunningRef.current = false;
     setTourRunning(false);
     setTourStep(0);
     setTourChapter("");
     setTourChoices(null);
     setTourPausePrompt("");
+    stopAudio();
     setLog((prev) => [
       ...prev,
       {
         role: "assistant",
         text: tourCancelRef.current
-          ? "Listo, frené el recorrido. Seguí preguntándome lo que quieras."
-          : "Fin del recorrido. Pedime un cultivo, el QR, o dictame CUIT y mail para el RUT.",
+          ? "Listo, frené el recorrido. Cuando quieras, tocá el micrófono o seguí por texto."
+          : "Fin del recorrido. Tocá el micrófono para dictar el RUT, o pedime un cultivo / el QR por texto.",
       },
     ]);
-    resumeListeningAfterSpeech();
+
+    const wantVoice =
+      !tourCancelRef.current &&
+      (lastChoice === "voice" || resumeMicAfterTourRef.current);
+    if (wantVoice) {
+      sessionLiveRef.current = true;
+      setSessionLive(true);
+      scheduleRestart(250);
+      if (lastChoice === "voice") {
+        setLog((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: "Micrófono listo. Pasame CUIT, mail o razón social cuando quieras.",
+          },
+        ]);
+      }
+    }
   }, [
+    clearRestartTimer,
+    disposeRecognition,
+    fetchTourAudio,
     narrate,
-    pauseListeningForSpeech,
-    resumeListeningAfterSpeech,
     scheduleRestart,
     sessionId,
   ]);
@@ -921,14 +1144,15 @@ export function DemoAssistant() {
   }, []);
 
   useEffect(() => {
-    if (!sessionLive || pushToTalk) return;
+    if (!sessionLive || pushToTalk || tourRunning) return;
     const id = window.setInterval(() => {
       if (!sessionLiveRef.current) return;
+      if (tourRunningRef.current) return;
       if (startingRef.current || runningRef.current) return;
       startEngineRef.current();
     }, 900);
     return () => window.clearInterval(id);
-  }, [sessionLive, pushToTalk]);
+  }, [sessionLive, pushToTalk, tourRunning]);
 
   useEffect(() => {
     return () => {
@@ -939,7 +1163,9 @@ export function DemoAssistant() {
   if (!sessionId) return null;
 
   const statusLine = tourRunning
-    ? `Recorrido ${tourStep}/9`
+    ? speakingUi
+      ? `Demo 3 min · ${tourChapter}`
+      : `Demo 3 min · tocá un botón`
     : !sessionLive
       ? voiceMode === "gabi"
         ? "Voz GABI B lista"
@@ -953,7 +1179,7 @@ export function DemoAssistant() {
             : "Te escucho";
 
   const tourProgress = tourRunning
-    ? Math.round((tourStep / 9) * 100)
+    ? Math.min(100, Math.round((tourStep / 8) * 100))
     : 0;
 
   return (
@@ -993,9 +1219,7 @@ export function DemoAssistant() {
               <div className="relative mt-3">
                 <div className="mb-1 flex items-center justify-between text-[10px] text-sky-100">
                   <span className="font-semibold">{tourChapter}</span>
-                  <span>
-                    {tourStep}/9
-                  </span>
+                  <span>Paso {tourStep}</span>
                 </div>
                 <div className="h-1.5 overflow-hidden rounded-full bg-white/20">
                   <div
@@ -1003,6 +1227,13 @@ export function DemoAssistant() {
                     style={{ width: `${tourProgress}%` }}
                   />
                 </div>
+                <button
+                  type="button"
+                  onClick={stopGuidedTour}
+                  className="mt-2 w-full rounded-full bg-white/15 px-3 py-1 text-[10px] font-semibold text-white ring-1 ring-white/25 hover:bg-white/25"
+                >
+                  Parar demo
+                </button>
               </div>
             ) : null}
           </div>
@@ -1013,7 +1244,28 @@ export function DemoAssistant() {
             </div>
           ) : null}
 
-          {sessionLive || speakingUi ? (
+          {tourRunning ? (
+            <div className="flex items-center justify-center gap-2 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+              {speakingUi ? (
+                <span className="demo-voice-bars text-amber-700" aria-hidden>
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              ) : (
+                <span className="inline-block h-2 w-2 rounded-full bg-amber-500" />
+              )}
+              <span>
+                {speakingUi
+                  ? "Narrando el recorrido…"
+                  : tourChoices?.length
+                    ? "Elegí una opción para continuar"
+                    : "Preparando el siguiente paso…"}
+              </span>
+            </div>
+          ) : sessionLive || speakingUi ? (
             <div
               className={`flex items-center justify-center gap-2 px-3 py-2 text-xs font-semibold ${
                 speakingUi
@@ -1171,15 +1423,20 @@ export function DemoAssistant() {
             ) : (
               <button
                 type="button"
+                disabled={tourRunning}
                 onClick={() => {
                   if (sessionLive) endVoiceSession();
                   else void startVoiceSession();
                 }}
-                className={`rounded-full px-3 py-2 text-sm font-semibold text-white shadow ${
+                className={`rounded-full px-3 py-2 text-sm font-semibold text-white shadow disabled:opacity-40 ${
                   sessionLive ? "bg-red-600" : "bg-emerald-600"
                 }`}
                 title={
-                  sessionLive ? "Finalizar sesión" : "Iniciar sesión de voz"
+                  tourRunning
+                    ? "Micrófono apagado durante la demo"
+                    : sessionLive
+                      ? "Finalizar sesión"
+                      : "Iniciar sesión de voz"
                 }
               >
                 {sessionLive ? "■" : "🎤"}
@@ -1188,14 +1445,19 @@ export function DemoAssistant() {
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              disabled={tourRunning}
               placeholder={
-                sessionLive ? "Escribí o hablá…" : "Escribí o abrí el micrófono…"
+                tourRunning
+                  ? "Demo en curso — usá los botones…"
+                  : sessionLive
+                    ? "Escribí o hablá…"
+                    : "Escribí o abrí el micrófono…"
               }
-              className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-mza-blue/20 focus:border-mza-blue focus:ring-2"
+              className="min-w-0 flex-1 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm outline-none ring-mza-blue/20 focus:border-mza-blue focus:ring-2 disabled:bg-slate-50 disabled:text-slate-400"
             />
             <button
               type="submit"
-              disabled={busy || !input.trim()}
+              disabled={busy || tourRunning || !input.trim()}
               className="rounded-full bg-mza-blue px-3.5 py-2 text-sm font-semibold text-white shadow disabled:opacity-40"
             >
               Ir

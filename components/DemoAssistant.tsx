@@ -18,6 +18,11 @@ import { officialUrlFor } from "@/lib/page-knowledge";
 import { readBrowserPageContext } from "@/lib/page-context";
 import type { AgentEvent } from "@/lib/types";
 import {
+  blobToBase64,
+  computeRms,
+  pickRecorderMime,
+} from "@/lib/mic-capture";
+import {
   estimateSpeechMs,
   isNearDuplicateHeard,
   looksLikeEcho,
@@ -178,6 +183,7 @@ export function DemoAssistant() {
   const [speakingUi, setSpeakingUi] = useState(false);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
   const [interim, setInterim] = useState("");
   const [confirm, setConfirm] = useState<ConfirmFill | null>(null);
   const [voiceMode, setVoiceMode] = useState<"gabi" | "browser" | "none">(
@@ -219,6 +225,18 @@ export function DemoAssistant() {
   const interimCommitTimerRef = useRef<number | null>(null);
   const lastInterimRef = useRef("");
   const sttLangRef = useRef("es-AR");
+  /** Prefer server STT (MediaRecorder) — browser SpeechRecognition often fails in Edge/corp nets. */
+  const serverMicRef = useRef(false);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const vadRafRef = useRef<number | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordChunksRef = useRef<Blob[]>([]);
+  const vadSpeakingRef = useRef(false);
+  const silenceAtRef = useRef(0);
+  const sttBusyRef = useRef(false);
+  const recorderMimeRef = useRef("audio/webm");
   const startEngineRef = useRef<() => void>(() => undefined);
   const handleTextRef = useRef<(raw: string) => Promise<void>>(
     async () => undefined
@@ -324,9 +342,198 @@ export function DemoAssistant() {
       if (!sessionLiveRef.current) return;
       if (tourRunningRef.current) return;
       if (pushToTalkRef.current) return;
+      if (serverMicRef.current) return;
       startEngineRef.current();
     }, delayMs);
   }, [clearRestartTimer]);
+
+  const acceptHeardRef = useRef<((raw: string) => void) | null>(null);
+
+  const stopServerMic = useCallback(() => {
+    if (vadRafRef.current != null) {
+      cancelAnimationFrame(vadRafRef.current);
+      vadRafRef.current = null;
+    }
+    const rec = mediaRecorderRef.current;
+    mediaRecorderRef.current = null;
+    if (rec && rec.state !== "inactive") {
+      try {
+        rec.ondataavailable = null;
+        rec.onstop = null;
+        rec.stop();
+      } catch {
+        // ignore
+      }
+    }
+    recordChunksRef.current = [];
+    vadSpeakingRef.current = false;
+    silenceAtRef.current = 0;
+    sttBusyRef.current = false;
+    mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
+    mediaStreamRef.current = null;
+    if (audioCtxRef.current) {
+      void audioCtxRef.current.close().catch(() => undefined);
+      audioCtxRef.current = null;
+    }
+    analyserRef.current = null;
+    serverMicRef.current = false;
+    setMicLevel(0);
+  }, []);
+
+  const sendRecordingForStt = useCallback(async (blob: Blob) => {
+    if (!blob.size || blob.size < 400) return;
+    if (sttBusyRef.current || busyRef.current) return;
+    sttBusyRef.current = true;
+    setInterim("Transcribiendo…");
+    try {
+      const audioBase64 = await blobToBase64(blob);
+      const res = await fetch("/api/agent/stt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          audioBase64,
+          mimeType: blob.type || recorderMimeRef.current,
+        }),
+      });
+      const data = (await res.json()) as { ok?: boolean; text?: string };
+      const text = (data.text || "").trim();
+      setInterim("");
+      if (text) {
+        // Reuse the same echo/dedupe path as browser STT.
+        acceptHeardRef.current?.(text);
+      }
+    } catch (err) {
+      console.error("server STT failed", err);
+      setInterim("");
+      setLog((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: "No pude transcribir lo que dijo. Probá de nuevo o escribí en el chat.",
+        },
+      ]);
+    } finally {
+      sttBusyRef.current = false;
+    }
+  }, []);
+
+  const beginUtteranceRecorder = useCallback(() => {
+    const stream = mediaStreamRef.current;
+    if (!stream || mediaRecorderRef.current) return;
+    try {
+      const mime = recorderMimeRef.current;
+      const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      recordChunksRef.current = [];
+      rec.ondataavailable = (ev) => {
+        if (ev.data.size > 0) recordChunksRef.current.push(ev.data);
+      };
+      rec.onstop = () => {
+        const chunks = recordChunksRef.current;
+        recordChunksRef.current = [];
+        mediaRecorderRef.current = null;
+        if (!chunks.length) return;
+        const blob = new Blob(chunks, {
+          type: rec.mimeType || recorderMimeRef.current,
+        });
+        void sendRecordingForStt(blob);
+      };
+      mediaRecorderRef.current = rec;
+      rec.start(200);
+      setInterim("…");
+    } catch (err) {
+      console.error("MediaRecorder start failed", err);
+      mediaRecorderRef.current = null;
+    }
+  }, [sendRecordingForStt]);
+
+  const endUtteranceRecorder = useCallback(() => {
+    const rec = mediaRecorderRef.current;
+    if (!rec || rec.state === "inactive") return;
+    try {
+      rec.stop();
+    } catch {
+      mediaRecorderRef.current = null;
+    }
+  }, []);
+
+  const startServerMic = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("getUserMedia unsupported");
+    }
+    stopServerMic();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      },
+    });
+    mediaStreamRef.current = stream;
+    recorderMimeRef.current = pickRecorderMime();
+    const Ctx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext })
+        .webkitAudioContext;
+    if (!Ctx) throw new Error("AudioContext unsupported");
+    const ctx = new Ctx();
+    audioCtxRef.current = ctx;
+    if (ctx.state === "suspended") await ctx.resume();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    analyserRef.current = analyser;
+    serverMicRef.current = true;
+    setListening(true);
+
+    const SPEECH = 0.028;
+    const BARGE = 0.045;
+    const SILENCE_MS = 700;
+    let lastLevelUi = 0;
+
+    const tick = () => {
+      vadRafRef.current = requestAnimationFrame(tick);
+      if (!sessionLiveRef.current || !serverMicRef.current) return;
+      const analyserNode = analyserRef.current;
+      if (!analyserNode) return;
+      const level = computeRms(analyserNode);
+      if (Math.abs(level - lastLevelUi) > 0.01 || level < 0.01) {
+        lastLevelUi = level;
+        setMicLevel(level);
+      }
+
+      if (tourRunningRef.current) return;
+
+      // Mientras el asistente habla: solo barge-in (cortar TTS).
+      if (speakingRef.current) {
+        if (level > BARGE) {
+          stopAudio();
+          speakingRef.current = false;
+          setSpeakingUi(false);
+        }
+        return;
+      }
+
+      if (busyRef.current || sttBusyRef.current) return;
+      if (pushToTalkRef.current) return;
+
+      if (level > SPEECH) {
+        if (!vadSpeakingRef.current) {
+          vadSpeakingRef.current = true;
+          beginUtteranceRecorder();
+        }
+        silenceAtRef.current = 0;
+      } else if (vadSpeakingRef.current) {
+        if (!silenceAtRef.current) silenceAtRef.current = Date.now();
+        if (Date.now() - silenceAtRef.current >= SILENCE_MS) {
+          vadSpeakingRef.current = false;
+          silenceAtRef.current = 0;
+          endUtteranceRecorder();
+        }
+      }
+    };
+    vadRafRef.current = requestAnimationFrame(tick);
+  }, [beginUtteranceRecorder, endUtteranceRecorder, stopServerMic]);
 
   const acceptHeard = useCallback((raw: string) => {
     const done = raw.trim();
@@ -375,7 +582,10 @@ export function DemoAssistant() {
     void handleTextRef.current(done);
   }, [clearInterimCommit]);
 
+  acceptHeardRef.current = acceptHeard;
+
   const startRecognitionEngine = useCallback(() => {
+    if (serverMicRef.current) return;
     if (!sessionLiveRef.current) return;
     if (tourRunningRef.current) return;
     if (pushToTalkRef.current) return;
@@ -561,6 +771,10 @@ export function DemoAssistant() {
       setListening(false);
       return;
     }
+    if (serverMicRef.current) {
+      setListening(true);
+      return;
+    }
     // Forzar ciclo de reconocimiento (Edge/Chrome a veces dejan el STT “muerto”).
     disposeRecognition(true);
     scheduleRestart(260);
@@ -576,39 +790,55 @@ export function DemoAssistant() {
     stopAudio();
     setInterim("");
     setListening(false);
+    stopServerMic();
     disposeRecognition(true);
     busyRef.current = false;
     setBusy(false);
-  }, [clearRestartTimer, disposeRecognition]);
+  }, [clearRestartTimer, disposeRecognition, stopServerMic]);
 
-  const startVoiceSession = useCallback(() => {
-    if (!speechSupported) {
+  const startVoiceSession = useCallback(async () => {
+    speakingRef.current = false;
+    setSpeakingUi(false);
+    sessionLiveRef.current = true;
+    setSessionLive(true);
+
+    try {
+      await startServerMic();
       setLog((prev) => [
         ...prev,
         {
           role: "assistant",
-          text: "Este navegador no soporta dictado por voz. Usá Chrome o Edge, o escribí en el chat.",
+          text: "Micrófono abierto. Hablá con calma: “hola”, “mostrame el RUT” o “llevame a los mapas”.",
+        },
+      ]);
+      return;
+    } catch (err) {
+      console.error("server mic failed", err);
+      serverMicRef.current = false;
+    }
+
+    if (!speechSupported) {
+      sessionLiveRef.current = false;
+      setSessionLive(false);
+      setLog((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: "No pude abrir el micrófono. Permitilo en el candado del sitio o escribí en el chat.",
         },
       ]);
       return;
     }
 
-    sessionLiveRef.current = true;
-    setSessionLive(true);
-    speakingRef.current = false;
-    setSpeakingUi(false);
     setLog((prev) => [
       ...prev,
       {
         role: "assistant",
-        text: "Micrófono abierto. Hablá cuando quieras: “hola”, “mostrame el RUT” o “llevame a los mapas”.",
+        text: "Micrófono abierto (dictado del navegador). Hablá cuando quieras.",
       },
     ]);
-
-    // Arrancá el dictado YA. El saludo por voz dejaba el micrófono trabado
-    // cuando Chrome no disparaba onend.
     startRecognitionEngine();
-  }, [speechSupported, startRecognitionEngine]);
+  }, [speechSupported, startRecognitionEngine, startServerMic]);
 
   const endVoiceSession = useCallback(() => {
     hardStopSession();
@@ -679,8 +909,12 @@ export function DemoAssistant() {
             !tourRunningRef.current &&
             !pushToTalkRef.current
           ) {
-            disposeRecognition(true);
-            scheduleRestart(260);
+            if (serverMicRef.current) {
+              setListening(true);
+            } else {
+              disposeRecognition(true);
+              scheduleRestart(260);
+            }
           }
           window.setTimeout(() => {
             lastSpokenRef.current = "";
@@ -1188,11 +1422,20 @@ export function DemoAssistant() {
     if (pushToTalk) {
       clearRestartTimer();
       disposeRecognition(true);
-      setListening(false);
-    } else if (sessionLiveRef.current && !speakingRef.current) {
+      if (!serverMicRef.current) setListening(false);
+      // Cortá una grabación VAD a medias al pasar a push-to-talk.
+      if (vadSpeakingRef.current) {
+        vadSpeakingRef.current = false;
+        endUtteranceRecorder();
+      }
+    } else if (
+      sessionLiveRef.current &&
+      !speakingRef.current &&
+      !serverMicRef.current
+    ) {
       scheduleRestart(200);
     }
-  }, [pushToTalk, scheduleRestart]);
+  }, [pushToTalk, scheduleRestart, disposeRecognition, clearRestartTimer, endUtteranceRecorder]);
 
   useEffect(() => {
     let timer: number | null = null;
@@ -1212,6 +1455,7 @@ export function DemoAssistant() {
     if (!sessionLive || pushToTalk || tourRunning) return;
     const id = window.setInterval(() => {
       if (!sessionLiveRef.current) return;
+      if (serverMicRef.current) return;
       if (tourRunningRef.current) return;
       if (startingRef.current || runningRef.current) return;
       startEngineRef.current();
@@ -1356,8 +1600,21 @@ export function DemoAssistant() {
                     ? "Mantener 🎤 para hablar"
                     : "Escuchando — hablá con calma"}
               </span>
+              {sessionLive && !speakingUi ? (
+                <span
+                  className="ml-1 inline-flex h-1.5 w-12 overflow-hidden rounded-full bg-emerald-200"
+                  title="Nivel de micrófono"
+                >
+                  <span
+                    className="block h-full bg-emerald-600 transition-[width] duration-75"
+                    style={{
+                      width: `${Math.min(100, Math.round(micLevel * 420))}%`,
+                    }}
+                  />
+                </span>
+              ) : null}
               {interim ? (
-                <span className="max-w-[55%] truncate font-normal italic opacity-80">
+                <span className="max-w-[45%] truncate font-normal italic opacity-80">
                   “{interim}”
                 </span>
               ) : null}
@@ -1471,15 +1728,23 @@ export function DemoAssistant() {
               <button
                 type="button"
                 className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow active:bg-emerald-800"
-                onMouseDown={() => startRecognitionEngine()}
-                onMouseUp={() => disposeRecognition(true)}
+                onMouseDown={() => {
+                  if (serverMicRef.current) beginUtteranceRecorder();
+                  else startRecognitionEngine();
+                }}
+                onMouseUp={() => {
+                  if (serverMicRef.current) endUtteranceRecorder();
+                  else disposeRecognition(true);
+                }}
                 onTouchStart={(e) => {
                   e.preventDefault();
-                  startRecognitionEngine();
+                  if (serverMicRef.current) beginUtteranceRecorder();
+                  else startRecognitionEngine();
                 }}
                 onTouchEnd={(e) => {
                   e.preventDefault();
-                  disposeRecognition(true);
+                  if (serverMicRef.current) endUtteranceRecorder();
+                  else disposeRecognition(true);
                 }}
                 title="Mantener para hablar"
               >

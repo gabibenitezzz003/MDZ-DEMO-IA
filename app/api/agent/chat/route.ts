@@ -39,7 +39,7 @@ import {
 } from "@/lib/rut-conversation";
 import { buildSectionGuide } from "@/lib/section-guide";
 import { wantsOdkHelp } from "@/lib/spoken-fields";
-import { humanizeSpoken } from "@/lib/spoken-style";
+import { humanizeSpoken, prepareTourNarration } from "@/lib/spoken-style";
 import { wantsOpenResource } from "@/lib/open-resource";
 import { correctSpeechTranscript } from "@/lib/stt-correct";
 import type { AgentEvent } from "@/lib/types";
@@ -132,11 +132,14 @@ function buildEvent(
 }
 
 async function withVoice(spoken: string, extra: Record<string, unknown>) {
-  const text = humanizeSpoken(spoken);
+  const isTour = extra.via === "tour-tts";
+  const text = isTour ? prepareTourNarration(spoken) : humanizeSpoken(spoken);
   let audioBase64: string | undefined;
   let audioMime: string | undefined;
   try {
-    const audio = await synthesizeSpeech(text);
+    const audio = await synthesizeSpeech(text, {
+      quality: isTour ? "narration" : "chat",
+    });
     if (audio) {
       audioBase64 = audio.toString("base64");
       audioMime = "audio/mpeg";

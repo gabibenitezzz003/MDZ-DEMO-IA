@@ -33,6 +33,9 @@ const MODELS = [
   "gemini-1.5-flash",
 ].filter((m): m is string => Boolean(m));
 
+const STRING_FIELD = { type: "string" };
+
+// Gemini responseSchema NO acepta additionalProperties (falla con 400).
 const RESPONSE_SCHEMA = {
   type: "object",
   properties: {
@@ -44,7 +47,26 @@ const RESPONSE_SCHEMA = {
     reply: { type: "string" },
     extractedFields: {
       type: "object",
-      additionalProperties: { type: "string" },
+      properties: {
+        cuit: STRING_FIELD,
+        email: STRING_FIELD,
+        telefono: STRING_FIELD,
+        razonSocial: STRING_FIELD,
+        tipoPersona: STRING_FIELD,
+        condicionTierra: STRING_FIELD,
+        renspa: STRING_FIELD,
+        nombreEstablecimiento: STRING_FIELD,
+        catastro: STRING_FIELD,
+        irrigacion: STRING_FIELD,
+        departamento: STRING_FIELD,
+        localidad: STRING_FIELD,
+        superficie: STRING_FIELD,
+        especie: STRING_FIELD,
+        variedad: STRING_FIELD,
+        superficieLote: STRING_FIELD,
+        sistemaRiego: STRING_FIELD,
+        anioImplantacion: STRING_FIELD,
+      },
     },
     fillMode: {
       type: "string",
@@ -56,9 +78,9 @@ const RESPONSE_SCHEMA = {
     remember: {
       type: "object",
       properties: {
-        name: { type: "string" },
-        crop: { type: "string" },
-        note: { type: "string" },
+        name: STRING_FIELD,
+        crop: STRING_FIELD,
+        note: STRING_FIELD,
       },
     },
   },

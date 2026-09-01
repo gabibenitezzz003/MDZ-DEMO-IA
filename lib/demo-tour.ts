@@ -24,8 +24,6 @@ export type TourBeat = {
   skipUnlessChoice?: string;
 };
 
-const SIA = "https://sia.mendoza.gov.ar/account/login";
-
 const CROP_A = {
   id: "ciruela",
   title: "ciruela",
@@ -43,7 +41,6 @@ export function pickTourCrop(seed = Date.now()): typeof CROP_A | typeof CROP_B {
 }
 
 export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
-  const cropOfficial = officialUrlFor(crop.id);
   const mapasOfficial = officialUrlFor("mapas-agricolas");
   const radarOfficial = officialUrlFor("radar");
 
@@ -52,22 +49,22 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "intro",
       chapter: "Bienvenida",
       spoken:
-        "Buenas. Soy el asistente de la Dirección de Agricultura de Mendoza. Te acompaño por cultivo, herramientas, autoridades, precios, el QR de ODK y el RUT. En algunos momentos te pregunto cómo seguir.",
+        "Buenas. Soy el asistente de la Dirección de Agricultura de Mendoza. En este recorrido te muestro un cultivo, las herramientas, las autoridades, los precios, el código Q R de O D K, y el RUT. En las pausas, tocá un botón para seguir.",
       action: "go_home",
-      dwellMs: 400,
+      dwellMs: 350,
     },
     {
       id: "crop",
       chapter: `Cultivo · ${crop.title}`,
-      spoken: `Primero, el productor. Te llevo a ${crop.title}: ${crop.why}. Acá están informes y datos productivos.`,
+      spoken: `Empezamos por el productor. Te llevo a ${crop.title}: ${crop.why}. Acá están los informes y los datos productivos.`,
       action: "navigate",
       target: crop.id,
       payload: { openLink: false, click: true },
       dwellMs: 300,
       pause: {
         prompt:
-          "¿Abrimos el recurso oficial de este cultivo, o seguimos a las herramientas?",
-        timeoutMs: 12000,
+          "Elegí con un botón: abrimos el sitio oficial de este cultivo, o seguimos a las herramientas.",
+        timeoutMs: 0,
         defaultChoiceId: "continue",
         choices: [
           {
@@ -87,30 +84,23 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "crop-official",
       chapter: "Recurso oficial",
       spoken:
-        "Te abro el recurso oficial de este cultivo en otra pestaña. Yo me quedo acá; si el navegador bloqueó la ventana, tocá Abrir sitio oficial.",
-      action: "open_external",
-      target: cropOfficial,
-      payload: {
-        sectionId: crop.id,
-        url: cropOfficial,
-        forceTab: true,
-        title: `Oficial · ${crop.title}`,
-      },
-      dwellMs: 700,
+        "Listo. El recurso oficial quedó en otra pestaña. Yo me quedo acá para seguir el recorrido.",
+      dwellMs: 350,
       skipUnlessChoice: "official",
     },
     {
       id: "mapas",
       chapter: "Herramientas",
       spoken:
-        "Segundo: herramientas. Te marco Mapas agrícolas para mirar la provincia. Al lado tenés visor, estaciones y radar.",
+        "Ahora, las herramientas. Te marco Mapas agrícolas, para mirar la provincia. Al lado tenés el visor, las estaciones y el radar.",
       action: "navigate",
       target: "mapas-agricolas",
       payload: { openLink: false, click: true, url: mapasOfficial },
       dwellMs: 300,
       pause: {
-        prompt: "¿Querés que te muestre el radar, o seguimos a autoridades?",
-        timeoutMs: 10000,
+        prompt:
+          "Elegí con un botón: te muestro el radar, o seguimos a autoridades.",
+        timeoutMs: 0,
         defaultChoiceId: "continue",
         choices: [
           {
@@ -130,45 +120,46 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "radar",
       chapter: "Radar",
       spoken:
-        "Te marco el radar meteorológico y te abro el oficial en otra pestaña si hace falta.",
+        "Te marco el radar meteorológico en la demo. El sitio oficial ya quedó abierto en la otra pestaña.",
       action: "navigate",
       target: "radar",
-      payload: { openLink: true, click: true, url: radarOfficial },
-      dwellMs: 700,
+      payload: { openLink: false, click: true, url: radarOfficial },
+      dwellMs: 350,
       skipUnlessChoice: "radar",
     },
     {
       id: "autoridades",
       chapter: "Institucional",
       spoken:
-        "Tercero: institucional. El director es el Ingeniero Agrónomo Magíster Alfredo Draque. Mail direcciondeagricultura arroba mendoza punto gov punto ar.",
+        "Pasamos a lo institucional. El director es el ingeniero agrónomo magíster Alfredo Draque. El correo es dirección de agricultura arroba mendoza punto gov punto a erre.",
       action: "navigate",
       target: "autoridades",
       payload: { openLink: false, click: true },
-      dwellMs: 500,
+      dwellMs: 350,
     },
     {
       id: "precios",
       chapter: "Precios",
       spoken:
-        "Cuarto: relevamiento de precios al consumidor. Informes semanales de frutas, verduras y huevos.",
+        "Ahora, el relevamiento de precios al consumidor. Hay informes semanales de frutas, verduras y huevos.",
       action: "navigate",
       target: "precios",
       payload: { openLink: false, click: true },
-      dwellMs: 400,
+      dwellMs: 300,
     },
     {
       id: "odk",
       chapter: "ODK Collect",
       spoken:
-        "Quinto: el código QR de ODK Collect. No es un link web: en el celular abrís Agregar proyecto y lo escaneás.",
+        "Este es el código Q R de O D K Collect. No es un link web. En el celular abrís Agregar proyecto, y lo escaneás.",
       action: "navigate",
       target: "odk-collect",
       payload: { openLink: false, click: true },
-      dwellMs: 400,
+      dwellMs: 300,
       pause: {
-        prompt: "¿Seguimos al RUT, o querés que te explique otra vez el QR?",
-        timeoutMs: 10000,
+        prompt:
+          "Elegí con un botón: seguimos al RUT, o te explico otra vez el código Q R.",
+        timeoutMs: 0,
         defaultChoiceId: "rut",
         choices: [
           {
@@ -188,24 +179,25 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "odk-again",
       chapter: "ODK · detalle",
       spoken:
-        "En ODK Collect: Agregar proyecto, escanear el código QR, y queda el servidor listo. En la demo hay un facsímil educativo.",
+        "En O D K Collect: Agregar proyecto, escanear el código Q R, y queda el servidor listo. En esta demo hay un facsímil educativo.",
       action: "navigate",
       target: "odk-collect",
       payload: { openLink: false, click: true },
-      dwellMs: 500,
+      dwellMs: 350,
       skipUnlessChoice: "odk-again",
     },
     {
       id: "rut",
       chapter: "RUT",
       spoken:
-        "Cierre: el RUT, Registro Único de Tierras. Te abro el wizard demo. Podés dictarme CUIT, mail y razón social.",
+        "Cerramos con el RUT, el Registro Único de Tierras. Te abro el asistente de carga. Después podés dictarme cuit, mail y razón social.",
       action: "open_rut",
       payload: { openExternal: false },
-      dwellMs: 500,
+      dwellMs: 350,
       pause: {
-        prompt: "¿Arrancamos a cargar datos por voz, o abrimos el SIA oficial?",
-        timeoutMs: 10000,
+        prompt:
+          "Elegí con un botón: arrancamos a cargar datos por voz, o abrimos el S I A oficial.",
+        timeoutMs: 0,
         defaultChoiceId: "voice",
         choices: [
           {
@@ -225,16 +217,8 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "rut-sia",
       chapter: "SIA oficial",
       spoken:
-        "Te abro el login del SIA oficial. La declaración real se hace ahí; esta demo solo simula el recorrido.",
-      action: "open_external",
-      target: SIA,
-      payload: {
-        sectionId: "rut",
-        url: SIA,
-        forceTab: true,
-        title: "SIA · RUT oficial",
-      },
-      dwellMs: 700,
+        "El ingreso al S I A oficial quedó en otra pestaña. La declaración real se hace ahí. Esta demo solo simula el recorrido.",
+      dwellMs: 350,
       skipUnlessChoice: "sia",
     },
   ];

@@ -32,6 +32,8 @@ import {
   extractMentionedDocs,
   isAffirmativeRut,
   normalizeRutFields,
+  recallConflictSpoken,
+  wantsRecallPriorFields,
   wantsRutChecklist,
   wantsToPassRutData,
 } from "@/lib/rut-conversation";
@@ -351,19 +353,16 @@ async function handleChat(req: NextRequest) {
     });
   }
 
-  // "ya te lo pasé" → re-scan recent user turns for fields we missed
-  if (
-    /(te lo pase|ya te (lo )?dije|ya te (lo )?pase|ahi te (lo )?di|ya te lo di|te lo dije)/.test(
-      text
-    )
-  ) {
-    for (const turn of [...mem.turns].reverse()) {
+  const recallPrior = wantsRecallPriorFields(text);
+  if (recallPrior) {
+    for (const turn of mem.turns) {
       if (turn.role !== "user") continue;
       Object.assign(
         localFields,
         normalizeRutFields(extractFormFields(turn.text))
       );
     }
+    Object.assign(localFields, normalizeRutFields(mem.pendingFields));
   }
 
   const strongRutKeys = [
@@ -387,14 +386,17 @@ async function handleChat(req: NextRequest) {
     mem.rutMode === "collecting" ||
     mem.rutMode === "confirm";
 
-  if (Object.keys(localFields).length && (intentIsRut || hasStrongRutFields)) {
+  if (
+    Object.keys(localFields).length &&
+    (intentIsRut || hasStrongRutFields || recallPrior)
+  ) {
     mergePendingFields(sessionId, localFields);
     intent.extractedFields = {
       ...normalizeRutFields(intent.extractedFields ?? {}),
       ...localFields,
     };
     setRutProgress(sessionId, { rutMode: "collecting" });
-    if (hasStrongRutFields && !intentIsRut) {
+    if ((hasStrongRutFields || recallPrior) && !intentIsRut) {
       intent = {
         ...intent,
         action: "open_rut",
@@ -633,7 +635,9 @@ async function handleChat(req: NextRequest) {
         useGuide: false,
         fillMode: undefined,
         payload: { fields: pending, mode: "auto", step: stepFor },
-        reply: ackAndAskNext(localFields, RUT_ASK_HINT[missing], salt),
+        reply: recallPrior
+          ? recallConflictSpoken(RUT_ASK_HINT[missing], pending)
+          : ackAndAskNext(localFields, RUT_ASK_HINT[missing], salt),
       };
       publish(
         buildEvent(sessionId, "fill_form", "rut", {
@@ -644,6 +648,16 @@ async function handleChat(req: NextRequest) {
       );
       publish(buildEvent(sessionId, "rut_focus_field", missing));
       setRutProgress(sessionId, { rutMode: "collecting", rutStep: stepFor });
+    } else if (recallPrior && missing) {
+      publish(buildEvent(sessionId, "open_rut"));
+      publish(buildEvent(sessionId, "rut_focus_field", missing));
+      intent = {
+        action: "rut_focus_field",
+        target: missing,
+        understood: true,
+        useGuide: false,
+        reply: recallConflictSpoken(RUT_ASK_HINT[missing], pending),
+      };
     } else if (justGotFields && !missing) {
       setRutProgress(sessionId, { rutMode: "confirm", rutStep: 4 });
       setAwaitingFill(sessionId, true);

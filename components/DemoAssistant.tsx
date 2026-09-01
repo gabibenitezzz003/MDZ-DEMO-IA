@@ -74,13 +74,34 @@ function normalizeHeard(text: string) {
 function looksLikeEcho(heard: string, spoken: string) {
   const a = normalizeHeard(heard);
   const b = normalizeHeard(spoken);
-  if (!a || a.length < 4 || !b) return false;
-  if (b.includes(a) || a.includes(b.slice(0, Math.min(b.length, 40)))) return true;
-  const aw = new Set(a.split(" ").filter((w) => w.length > 3));
-  if (!aw.size) return false;
+  if (!a || a.length < 3 || !b) return false;
+  if (a === b) return true;
+  if (b.includes(a) || a.includes(b)) return true;
+  const head = b.slice(0, Math.min(b.length, 56));
+  const tail = b.slice(Math.max(0, b.length - 56));
+  if (a.includes(head) || a.includes(tail) || head.includes(a) || tail.includes(a)) {
+    return true;
+  }
+  const aw = a.split(" ").filter((w) => w.length > 2);
+  if (!aw.length) return false;
   let hit = 0;
   for (const w of aw) if (b.includes(w)) hit += 1;
-  return hit / aw.size >= 0.7;
+  return hit / aw.length >= 0.55;
+}
+
+function isNearDuplicateHeard(aRaw: string, bRaw: string) {
+  const a = normalizeHeard(aRaw);
+  const b = normalizeHeard(bRaw);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+  const aw = a.split(" ").filter((w) => w.length > 2);
+  const bw = b.split(" ").filter((w) => w.length > 2);
+  if (!aw.length || !bw.length) return false;
+  const setB = new Set(bw);
+  let hit = 0;
+  for (const w of aw) if (setB.has(w)) hit += 1;
+  return hit / Math.max(aw.length, bw.length) >= 0.72;
 }
 
 function playAudioBase64(
@@ -209,7 +230,9 @@ export function DemoAssistant() {
   const genIdRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastSpokenRef = useRef("");
+  const lastSpokenUntilRef = useRef(0);
   const bargeArmedRef = useRef(false);
+  const bargeInFlightRef = useRef(false);
   const tourCropIdRef = useRef<string>("ciruela");
   const tourOfficialUrlRef = useRef<string>(OFFICIAL_PORTAL);
 
@@ -326,34 +349,56 @@ export function DemoAssistant() {
       const liveTrim = live.trim();
       if (liveTrim) setInterim(liveTrim);
 
+      const echoWindowOpen = Date.now() < lastSpokenUntilRef.current;
+      const spoken = lastSpokenRef.current;
+
+      // Cortá el audio apenas se escucha voz real (no eco). El turno se manda
+      // solo cuando el STT marca final — evita duplicar interim + final.
+      if (speakingRef.current && liveTrim.length >= 5) {
+        const isEcho = looksLikeEcho(liveTrim, spoken);
+        if (!isEcho && (bargeArmedRef.current || liveTrim.length >= 9)) {
+          bargeInFlightRef.current = true;
+          stopAudio();
+          speakingRef.current = false;
+          setSpeakingUi(false);
+        }
+      }
+
       const done = finalText.trim();
-      const candidate = done || (liveTrim.length >= 12 ? liveTrim : "");
-      if (!candidate) return;
+      if (!done) return;
 
       if (
-        (speakingRef.current || busyRef.current) &&
-        looksLikeEcho(candidate, lastSpokenRef.current)
+        (speakingRef.current || busyRef.current || echoWindowOpen || bargeInFlightRef.current) &&
+        looksLikeEcho(done, spoken)
       ) {
+        setInterim("");
         return;
       }
 
-      if (speakingRef.current || busyRef.current) {
-        if (!done && liveTrim.length < 8) return;
-        if (!bargeArmedRef.current && speakingRef.current) return;
+      if (speakingRef.current && !bargeArmedRef.current && !bargeInFlightRef.current) {
+        return;
+      }
+
+      if (speakingRef.current) {
+        stopAudio();
+        speakingRef.current = false;
+        setSpeakingUi(false);
       }
 
       const now = Date.now();
-      const key = candidate.toLowerCase();
       if (
-        key === lastHeardTextRef.current &&
-        now - lastHeardAtRef.current < 1600
+        lastHeardTextRef.current &&
+        now - lastHeardAtRef.current < 4200 &&
+        isNearDuplicateHeard(done, lastHeardTextRef.current)
       ) {
+        setInterim("");
         return;
       }
-      lastHeardTextRef.current = key;
+      lastHeardTextRef.current = normalizeHeard(done) || done.toLowerCase();
       lastHeardAtRef.current = now;
+      bargeInFlightRef.current = false;
       setInterim("");
-      void handleTextRef.current(candidate);
+      void handleTextRef.current(done);
     };
 
     rec.onerror = (ev) => {
@@ -425,11 +470,12 @@ export function DemoAssistant() {
     setSpeakingUi(true);
     setInterim("");
     bargeArmedRef.current = false;
+    bargeInFlightRef.current = false;
     window.setTimeout(() => {
       bargeArmedRef.current = true;
-    }, 450);
+    }, 120);
     if (!runningRef.current && !pushToTalkRef.current) {
-      scheduleRestart(80);
+      scheduleRestart(60);
     }
   }, [scheduleRestart]);
 
@@ -437,12 +483,13 @@ export function DemoAssistant() {
     speakingRef.current = false;
     setSpeakingUi(false);
     bargeArmedRef.current = false;
+    bargeInFlightRef.current = false;
     if (!sessionLiveRef.current) return;
     if (pushToTalkRef.current) {
       setListening(false);
       return;
     }
-    scheduleRestart(120);
+    scheduleRestart(100);
   }, [scheduleRestart]);
 
   const hardStopSession = useCallback(() => {
@@ -533,15 +580,19 @@ export function DemoAssistant() {
         }
 
         lastSpokenRef.current = spoken;
+        lastSpokenUntilRef.current =
+          Date.now() +
+          (audioBase64 ? Math.min(12000, estimateSpeechMs(spoken) + 900) : estimateSpeechMs(spoken) + 700);
         speakingRef.current = true;
         setSpeakingUi(true);
         bargeArmedRef.current = false;
+        bargeInFlightRef.current = false;
         window.setTimeout(() => {
           bargeArmedRef.current = true;
-        }, 180);
+        }, 100);
         stopAudio(true);
         if (!runningRef.current && sessionLiveRef.current && !pushToTalkRef.current) {
-          scheduleRestart(80);
+          scheduleRestart(60);
         }
 
         if (audioBase64) {
@@ -613,6 +664,8 @@ export function DemoAssistant() {
 
       abortRef.current?.abort();
       stopAudio();
+      speakingRef.current = false;
+      setSpeakingUi(false);
       const myGen = ++genIdRef.current;
       const controller = new AbortController();
       abortRef.current = controller;
@@ -621,11 +674,20 @@ export function DemoAssistant() {
       busyRef.current = true;
       setBusy(true);
       if (!opts?.silentUser) {
-        setLog((prev) => [...prev, { role: "user", text }]);
+        setLog((prev) => {
+          const last = prev[prev.length - 1];
+          if (
+            last?.role === "user" &&
+            isNearDuplicateHeard(last.text, text) &&
+            Date.now() - lastHeardAtRef.current < 5000
+          ) {
+            return prev;
+          }
+          return [...prev, { role: "user", text }];
+        });
       }
       setInput("");
       setConfirm(null);
-      pauseListeningForSpeech();
 
       try {
         if (wantsStopTour(text)) {
@@ -721,7 +783,6 @@ export function DemoAssistant() {
     },
     [
       hardStopSession,
-      pauseListeningForSpeech,
       resolveTourChoice,
       resumeListeningAfterSpeech,
       sessionId,

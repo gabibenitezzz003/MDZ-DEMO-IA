@@ -172,3 +172,33 @@ export function wantsToPassRutData(raw: string): boolean {
     text
   );
 }
+
+export function wantsRecallPriorFields(raw: string): boolean {
+  const text = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[¿?¡!.,;:]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /(ya te (lo )?(pase|dije|habia pasado|di)|te lo (pase|dije|habia pasado)|ahi te (lo )?(di|pase)|ya se lo (di|pase)|ya te lo habia|te lo habia pasado|ya te lo dije|ya te lo pase)/.test(
+    text
+  );
+}
+
+export function recallConflictSpoken(
+  missingHint: string | undefined,
+  recovered: Record<string, string>
+): string {
+  const got = Object.keys(recovered).length ? summarizePending(recovered) : "";
+  if (got && missingHint) {
+    return `Tenés razón, revisé lo anterior y ya tengo ${got}. Me falta ${missingHint}: pasámelo de nuevo bien clarito y seguimos.`;
+  }
+  if (got && !missingHint) {
+    return `Tenés razón, ya tengo ${got}. Si está bien, decime “confirmá” y lo cargo.`;
+  }
+  if (missingHint) {
+    return `Disculpá, revisé lo que me dijiste y todavía no me quedó ${missingHint}. Decilo otra vez, por ejemplo con “mail juan arroba gmail punto com”.`;
+  }
+  return "Disculpá, no me quedó claro el dato. Pasámelo otra vez y lo anoto.";
+}

@@ -370,10 +370,20 @@ export function DemoAssistant() {
       const done = finalText.trim();
       if (!done) return;
 
-      // Eco solo mientras suena o justo después (ventana corta).
+      // Eco SOLO mientras el asistente habla (o corte de barge-in).
+      // Fuera de eso, no filtrar: bloqueaba pedidos reales del usuario.
       if (
-        (speakingRef.current || bargeInFlightRef.current || echoWindowOpen) &&
+        (speakingRef.current || bargeInFlightRef.current) &&
         looksLikeEcho(done, spoken)
+      ) {
+        setInterim("");
+        return;
+      }
+      if (
+        echoWindowOpen &&
+        spoken &&
+        looksLikeEcho(done, spoken) &&
+        normalizeHeard(done).length >= 24
       ) {
         setInterim("");
         return;
@@ -388,7 +398,7 @@ export function DemoAssistant() {
       const now = Date.now();
       if (
         lastHeardTextRef.current &&
-        now - lastHeardAtRef.current < 2200 &&
+        now - lastHeardAtRef.current < 1600 &&
         isNearDuplicateHeard(done, lastHeardTextRef.current)
       ) {
         setInterim("");
@@ -484,13 +494,16 @@ export function DemoAssistant() {
     setSpeakingUi(false);
     bargeArmedRef.current = false;
     bargeInFlightRef.current = false;
+    lastSpokenUntilRef.current = Date.now() + 300;
     if (!sessionLiveRef.current) return;
     if (pushToTalkRef.current) {
       setListening(false);
       return;
     }
-    scheduleRestart(100);
-  }, [scheduleRestart]);
+    // Forzar ciclo de reconocimiento (Chrome a veces deja el STT “muerto”).
+    disposeRecognition(true);
+    scheduleRestart(120);
+  }, [disposeRecognition, scheduleRestart]);
 
   const hardStopSession = useCallback(() => {
     sessionLiveRef.current = false;
@@ -597,8 +610,21 @@ export function DemoAssistant() {
         }
 
         const finishSpeak = () => {
-          lastSpokenUntilRef.current = Date.now() + 600;
+          lastSpokenUntilRef.current = Date.now() + 400;
           done();
+          // Reactivar micrófono sí o sí al terminar de hablar.
+          if (
+            sessionLiveRef.current &&
+            !tourRunningRef.current &&
+            !pushToTalkRef.current
+          ) {
+            scheduleRestart(80);
+          }
+          window.setTimeout(() => {
+            if (Date.now() >= lastSpokenUntilRef.current) {
+              lastSpokenRef.current = "";
+            }
+          }, 500);
         };
 
         if (audioBase64) {

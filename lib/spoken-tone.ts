@@ -9,7 +9,7 @@ export function neutralizeToUsted(text: string): string {
   const pairs: Array<[RegExp, string]> = [
     [/\b¿cómo andás\b/gi, "¿cómo está"],
     [/\bcómo andás\b/gi, "cómo está"],
-    [/\bBuenas\b/g, "Buenos días"],
+    [/\bBuenas\b/g, "Hola"],
     [/\btenés\b/gi, "tiene"],
     [/\bquerés\b/gi, "quiere"],
     [/\bpodés\b/gi, "puede"],

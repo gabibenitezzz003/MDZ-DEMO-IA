@@ -4,6 +4,7 @@ import {
   fieldLabels,
   wantsEndSession,
 } from "@/lib/form-extract";
+import { wantsContinueTour, wantsListeningCheck } from "@/lib/intent-guards";
 import {
   answerFact,
   findBestSections,
@@ -51,11 +52,21 @@ export function interpretUtterance(raw: string): AssistantIntent {
 
   if (!text) {
     return {
-      action: "navigate",
-      target: "tramites",
+      action: "describe",
       understood: false,
+      useGuide: false,
       reply:
-        "Decime qué necesitás... un cultivo, mapas, precios, capacitaciones o el RUT.",
+        "Dígame qué necesita: un cultivo, mapas, precios, capacitaciones o el RUT, y lo resolvemos.",
+    };
+  }
+
+  if (wantsListeningCheck(raw)) {
+    return {
+      action: "describe",
+      understood: true,
+      useGuide: false,
+      reply:
+        "Sí, la escucho a usted. Acabo de recibir su mensaje. ¿En qué la puedo ayudar: RUT, un cultivo, mapas o clima?",
     };
   }
 
@@ -65,7 +76,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       endSession: true,
       understood: true,
       reply:
-        "Listo, cierro la sesión y apago el micrófono. Cuando quieras, arrancamos de nuevo.",
+        "Listo, cierro la sesión y apago el micrófono. Cuando quiera, arrancamos de nuevo.",
     };
   }
 
@@ -78,9 +89,9 @@ export function interpretUtterance(raw: string): AssistantIntent {
         fillMode: "auto",
         understood: true,
         payload: { fields: extractedFields, mode: "auto", step: 1 },
-        reply: `Dale, te abro el RUT y te cargo ${fieldLabels(
+        reply: `Le abro el RUT y cargo ${fieldLabels(
           extractedFields
-        )}. Si hay que corregir algo, me lo decís.`,
+        )}. Si hay que corregir algo, me lo dice.`,
       };
     }
     if (fillMode === "manual") {
@@ -91,7 +102,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
         understood: true,
         payload: { fields: extractedFields, mode: "manual" },
         reply:
-          "Bueno, te dejo el wizard abierto para que lo cargues vos. Yo te voy marcando los campos.",
+          "Dejo el wizard abierto para que lo complete usted. Voy marcando los campos.",
       };
     }
     return {
@@ -104,13 +115,13 @@ export function interpretUtterance(raw: string): AssistantIntent {
       confirm: {
         type: "fill",
         fields: extractedFields,
-        question: `Atrapé ${fieldLabels(
+        question: `Registré ${fieldLabels(
           extractedFields
-        )}. ¿Los cargo yo en el RUT, o los cargás a mano?`,
+        )}. ¿Los cargo yo en el RUT, o los carga usted?`,
       },
-      reply: `Atrapé ${fieldLabels(
+      reply: `Registré ${fieldLabels(
         extractedFields
-      )}... ¿Los cargo yo en el formulario, o preferís cargarlos a mano?`,
+      )}. ¿Los cargo yo en el formulario, o prefiere cargarlos usted?`,
     };
   }
 
@@ -119,7 +130,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       action: "fill_form",
       fillMode: "auto",
       understood: true,
-      reply: "Dale, los cargo yo en el formulario.",
+      reply: "De acuerdo, los cargo yo en el formulario.",
     };
   }
   if (fillMode === "manual") {
@@ -127,7 +138,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       action: "open_rut",
       fillMode: "manual",
       understood: true,
-      reply: "Perfecto, lo dejamos para que lo cargues vos.",
+      reply: "Queda para que lo complete usted en el wizard.",
     };
   }
 
@@ -142,7 +153,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       useGuide: false,
       payload: { openLink: true, click: true },
       reply:
-        "Dale, te llevo a ajo... Acá está el bloque del cultivo, con informes y datos productivos. Te abro la ficha oficial. ¿Querés que después sigamos por tomate industria o por precios?",
+        "Lo llevo a ajo: informes y datos productivos del cultivo. Le abro la ficha oficial. ¿Después seguimos por tomate industria o por precios?",
     };
   }
 
@@ -238,27 +249,21 @@ export function interpretUtterance(raw: string): AssistantIntent {
       understood: true,
       useGuide: false,
       reply:
-        "Dale, te abro el wizard del RUT... Acá vas a cargar la declaración paso a paso. Si me pasás CUIT o mail, te pregunto si los cargo yo. ¿Tenés alguna duda, o arrancamos por el paso 1?",
+        "Le abro el wizard del RUT para cargar la declaración paso a paso. Si me pasa CUIT o mail, le pregunto si los cargo yo. ¿Arrancamos por el paso 1?",
     };
   }
 
-  if (/hola|buen dia|buenas|ayuda|que podes|que haces|como andas/.test(text)) {
+  if (/hola|buen dia|buenas|ayuda|que podes|que haces|como andas|como esta/.test(text)) {
     return {
-      action: "navigate",
-      target: "tramites",
+      action: "describe",
       understood: true,
       useGuide: false,
       reply:
-        "Hola, ¿cómo andás? Soy el asistente de Agricultura Mendoza. Puedo llevarte por toda la página: RUT, mapas, cultivos, clima, precios... Decime qué querés ver y te guío. ¿Por dónde arrancamos?",
+        "Hola, soy el asistente de Agricultura Mendoza. Puedo resolverle el RUT, llevarlo a un cultivo, mapas o clima. ¿Qué necesita ahora?",
     };
   }
 
-  if (
-    /^(si|dale|ok|va|de una|seguimos|segui|continua|continuar|siguiente|avance|avanzar|mostrame otra|otra seccion)$/.test(
-      text
-    ) ||
-    /segui|continua|siguiente|avancemos|mostrame otra|otra cosa/.test(text)
-  ) {
+  if (wantsContinueTour(raw)) {
     return {
       action: "scroll",
       target: "down",
@@ -266,7 +271,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       useGuide: false,
       payload: { continueTour: true },
       reply:
-        "Dale, seguimos... Si querés ir a algo puntual, decime el nombre: RUT, mapas, ajo, agrometeorología...",
+        "Seguimos. Si quiere ir a algo puntual, diga el nombre: RUT, mapas, ajo o agrometeorología.",
     };
   }
 
@@ -277,7 +282,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       useGuide: false,
       payload: { explainLast: true },
       reply:
-        "Claro. Decime qué parte no te cerró, o pedime que te lleve de nuevo a esa sección y te la explico despacio.",
+        "Claro. Dígame qué parte no le cerró y se la explico, o pedime que vuelva a marcar esa sección.",
     };
   }
 
@@ -336,10 +341,10 @@ export function interpretUtterance(raw: string): AssistantIntent {
   }
 
   return {
-    action: "navigate",
-    target: "herramientas",
+    action: "describe",
     understood: false,
+    useGuide: false,
     reply:
-      "No te seguí del todo... Probá con ajo, ciruela, tomate, agrometeorología, mapas, radar, precios, capacitaciones o RUT. También puedo abrir el sitio oficial o el SIA.",
+      "No lo seguí del todo. ¿Busca el RUT, un cultivo (ajo, ciruela…), mapas o clima? Dígamelo en una frase y lo resuelvo.",
   };
 }

@@ -57,7 +57,7 @@ const SPOKEN: Record<string, string> = {
   durazno:
     "Acá está durazno industria. En el portal oficial hay informes, tableros e índices tecnológicos. Si te sirve, después te muestro ciruela o tomate industria, que también son cadenas fuertes.",
   ciruela:
-    "Dale, te llevo a ciruela... Acá está el bloque del cultivo, lo dejo marcado. En el oficial ves informes, el pronóstico de cosecha y los reportes. Si querés, después seguimos por durazno, cereza o fenología.",
+    "Ciruela: acá tiene el bloque del cultivo. En el oficial están informes, pronóstico de cosecha y reportes. ¿Quiere el link oficial o seguimos por durazno?",
   cereza:
     "Acá está cereza: información productiva y reportes del cultivo. Puedo llevarte también a ciruela o al calendario fenológico.",
   vid: "Esta es vid. Hay información de viticultura y se cruza mucho con heladas, agrometeorología y fenología. Decime si querés ir a alguna de esas.",
@@ -65,7 +65,7 @@ const SPOKEN: Record<string, string> = {
     "Esta es fenología: los estadios del cultivo a lo largo del año. Sirve para ciruela, durazno, vid y también para hortalizas.",
   "cultivos-horticolas":
     "Esta es la zona hortícola. Los más pedidos son ajo, tomate industria y cinturón verde.",
-  ajo: "Dale, te llevo a ajo... Acá está el bloque con informes y datos productivos. Si querés, después seguimos por tomate industria o precios.",
+  ajo: "Ajo: acá están informes y datos productivos. ¿Abro la ficha oficial o prefiere tomate industria / precios?",
   tomate:
     "Acá está tomate industria. En el portal hay informes y datos de esa cadena. También te puedo mostrar durazno industria, que se parece en la lógica de procesamiento.",
   "cinturon-verde":
@@ -77,7 +77,7 @@ const SPOKEN: Record<string, string> = {
   herramientas:
     "Estas son las herramientas digitales: agrometeorología, mapas, estaciones, visor, radar y análisis de eventos. Decime cuál querés ver.",
   agrometeorologia:
-    "Dale, te llevo a agrometeorología... Clima aplicado a la producción. Si querés después te muestro estaciones o el radar.",
+    "Esto es agrometeorología: clima aplicado a la producción. Desde aquí puede pasar a estaciones o al radar si lo necesita.",
   "mapas-agricolas":
     "Estos son los mapas agrícolas de Mendoza... El visor está al lado, por si querés verlo en el mapa.",
   estaciones:

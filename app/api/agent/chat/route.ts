@@ -39,6 +39,7 @@ import {
   wantsToPassRutData,
 } from "@/lib/rut-conversation";
 import { buildSectionGuide } from "@/lib/section-guide";
+import { wantsListeningCheck } from "@/lib/intent-guards";
 import { wantsOdkHelp } from "@/lib/spoken-fields";
 import { humanizeSpoken, prepareTourNarration } from "@/lib/spoken-style";
 import { conflictSpoken } from "@/lib/field-merge";
@@ -288,6 +289,17 @@ async function handleChat(req: NextRequest) {
       ...brainInput,
       local: () => interpretWithGemini(brainInput),
     })) ?? interpretUtterance(text);
+
+  // Meta mic / coherencia: nunca dejar que un falso "continuar" abra otra sección.
+  if (wantsListeningCheck(text)) {
+    const heard = text.length > 90 ? `${text.slice(0, 87)}…` : text;
+    intent = {
+      action: "describe",
+      understood: true,
+      useGuide: false,
+      reply: `Sí, la escucho a usted. Recibí: “${heard}”. ¿En qué la ayudo ahora: RUT, un cultivo, mapas o clima?`,
+    };
+  }
 
   const remember = intent.payload?.remember;
   if (remember && typeof remember === "object") {

@@ -58,15 +58,15 @@ export function summarizePending(fields: Record<string, string>): string {
 
 const ACK_TEMPLATES = [
   (got: string, next: string) =>
-    `Listo, quedó ${got}. Seguimos: pasame ${next}.`,
+    `Listo, quedó registrado ${got}. Continuamos: páseme ${next}.`,
   (got: string, next: string) =>
-    `Bien, ya tengo ${got}. ¿Me pasás ${next}?`,
+    `Bien, ya tengo ${got}. ¿Me indica ${next}?`,
   (got: string, next: string) =>
     `Anotado ${got}. Ahora necesito ${next}.`,
   (got: string, next: string) =>
-    `Gracias. Con ${got} estamos bien. Pasame ${next} y avanzamos.`,
+    `Gracias. Con ${got} estamos bien. Páseme ${next} y avanzamos.`,
   (got: string, next: string) =>
-    `Quedó registrado ${got}. Decime ${next}.`,
+    `Quedó registrado ${got}. Dígame ${next}.`,
 ];
 
 export function ackAndAskNext(
@@ -81,10 +81,10 @@ export function ackAndAskNext(
 
 export function askFirstField(hint: string): string {
   const openers = [
-    `Buenísimo, arrancamos juntos. Empecemos por ${hint}.`,
-    `Dale, te voy guiando paso a paso. Primero pasame ${hint}.`,
-    `Perfecto, vamos con calma. Para empezar necesito ${hint}.`,
-    `Genial. Arrancamos por lo básico: pasame ${hint}.`,
+    `Perfecto, comencemos. Empecemos por ${hint}.`,
+    `Con gusto lo guío paso a paso. Primero páseme ${hint}.`,
+    `De acuerdo, vamos con calma. Para empezar necesito ${hint}.`,
+    `Muy bien. Empezamos por lo básico: páseme ${hint}.`,
   ];
   return openers[Math.floor(Date.now() / 1000) % openers.length];
 }
@@ -92,7 +92,7 @@ export function askFirstField(hint: string): string {
 export function askConfirmReady(fields: Record<string, string>): string {
   return `Ya tengo ${summarizePending(
     fields
-  )}. Si está todo bien, decime “confirmá” o “completalo vos” y te cargo el formulario y el checklist de documentos.`;
+  )}. Si está todo correcto, diga “confirme” o “complételo usted” y cargo el formulario y el checklist de documentos.`;
 }
 
 export function completeRutSpoken(
@@ -101,11 +101,11 @@ export function completeRutSpoken(
   mentionedDocs: string[]
 ): string {
   const docsBit = mentionedDocs.length
-    ? ` Me anoté que ya tenés ${mentionedDocs.join(", ")}.`
+    ? ` Registré que ya cuenta con ${mentionedDocs.join(", ")}.`
     : "";
-  return `Excelente. Te cargo ${summarizePending(
+  return `Excelente. Cargo ${summarizePending(
     fields
-  )} en el wizard.${docsBit} Te dejo el checklist para condición ${condicion}: constancia de CUIT, documentación legal del titular y boleta del impuesto inmobiliario. Mirá el paso 4; en el oficial se presenta según tu caso.`;
+  )} en el asistente.${docsBit} Le dejo el checklist para condición ${condicion}: constancia de CUIT, documentación legal del titular y boleta del impuesto inmobiliario. Revise el paso 4; en el sitio oficial se presenta según su caso.`;
 }
 
 export function isAffirmativeRut(raw: string): boolean {
@@ -117,13 +117,13 @@ export function isAffirmativeRut(raw: string): boolean {
     .replace(/\s+/g, " ")
     .trim();
   if (
-    /^(si|dale|ok|okay|va|de una|confirmo|confirmalo|confirmamos|listo|seguimos|adelante)$/.test(
+    /^(si|dale|ok|okay|va|de una|confirmo|confirmalo|confirmamos|confirme|listo|seguimos|adelante|de acuerdo)$/.test(
       text
     )
   ) {
     return true;
   }
-  return /(confirm|completalo|cargalo|llena(lo)?|hacelo vos|si por favor|dale si|mostrame (el )?checklist|seguimos al checklist|si dale)/.test(
+  return /(confirm|completalo|completel[oa]|cargalo|carguel[oa]|llena(lo)?|hacelo vos|hagalo usted|si por favor|dale si|mostrame (el )?checklist|muestreme (el )?checklist|seguimos al checklist|si dale)/.test(
     text
   );
 }
@@ -181,7 +181,7 @@ export function wantsRecallPriorFields(raw: string): boolean {
     .replace(/[¿?¡!.,;:]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return /(ya te (lo )?(pase|dije|habia pasado|di)|te lo (pase|dije|habia pasado)|ahi te (lo )?(di|pase)|ya se lo (di|pase)|ya te lo habia|te lo habia pasado|ya te lo dije|ya te lo pase)/.test(
+  return /(ya te (lo )?(pase|dije|habia pasado|di)|te lo (pase|dije|habia pasado)|ahi te (lo )?(di|pase)|ya se lo (di|pase|habia pasado)|ya te lo habia|te lo habia pasado|ya te lo dije|ya te lo pase)/.test(
     text
   );
 }
@@ -192,13 +192,13 @@ export function recallConflictSpoken(
 ): string {
   const got = Object.keys(recovered).length ? summarizePending(recovered) : "";
   if (got && missingHint) {
-    return `Tenés razón, revisé lo anterior y ya tengo ${got}. Me falta ${missingHint}: pasámelo de nuevo bien clarito y seguimos.`;
+    return `Tiene razón, revisé lo anterior y ya tengo ${got}. Me falta ${missingHint}: pásemelo nuevamente con claridad y continuamos.`;
   }
   if (got && !missingHint) {
-    return `Tenés razón, ya tengo ${got}. Si está bien, decime “confirmá” y lo cargo.`;
+    return `Tiene razón, ya tengo ${got}. Si está correcto, diga “confirme” y lo cargo.`;
   }
   if (missingHint) {
-    return `Disculpá, revisé lo que me dijiste y todavía no me quedó ${missingHint}. Decilo otra vez, por ejemplo con “mail juan arroba gmail punto com”.`;
+    return `Disculpe, revisé lo indicado y todavía no me quedó ${missingHint}. Indíquelo otra vez, por ejemplo con “mail juan arroba gmail punto com”.`;
   }
-  return "Disculpá, no me quedó claro el dato. Pasámelo otra vez y lo anoto.";
+  return "Disculpe, no me quedó claro el dato. Indíquelo otra vez y lo anoto.";
 }

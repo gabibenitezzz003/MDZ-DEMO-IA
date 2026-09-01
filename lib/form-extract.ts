@@ -53,7 +53,7 @@ export function detectFillPreference(raw: string): FillMode | null {
   }
 
   if (
-    /(completalo|llena(lo)?|cargalo|hacelo vos|hace lo vos|automatico|si por favor|dale si|si comple|si carga|si llen|si hacelo|si dale|confirm(a|alo|amos|o)|seguimos|mostrame (el )?checklist)/.test(
+    /(completalo|llena(lo)?|cargalo|hacelo vos|hace lo vos|automatico|si por favor|dale si|si comple|si carga|si llen|si hacelo|si dale|confirm(a|alo|amos|o)|mostrame (el )?checklist|seguimos al checklist|seguimos con (el )?checklist)/.test(
       text
     )
   ) {

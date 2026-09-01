@@ -1,5 +1,6 @@
 import type { AssistantIntent } from "@/lib/demo-assistant";
 import type { ChatTurn } from "@/lib/gemini-brain";
+import { withTimeout } from "@/lib/async-timeout";
 import type { ClientPageContext } from "@/lib/page-context";
 import type { AgentAction } from "@/lib/types";
 
@@ -20,47 +21,46 @@ const ACTIONS: AgentAction[] = [
   "describe",
 ];
 
-function parseIntent(raw: unknown): AssistantIntent | null {
-  if (!raw || typeof raw !== "object") return null;
-  const data = raw as Record<string, unknown>;
-  const nested =
-    data.intent && typeof data.intent === "object"
-      ? (data.intent as Record<string, unknown>)
-      : data;
-
-  const action = ACTIONS.includes(nested.action as AgentAction)
-    ? (nested.action as AgentAction)
+function parseIntent(raw: Record<string, unknown>): AssistantIntent | null {
+  const action = ACTIONS.includes(raw.action as AgentAction)
+    ? (raw.action as AgentAction)
     : "describe";
-  const reply = String(nested.reply ?? nested.spoken ?? data.spoken ?? "").trim();
+  const reply = String(raw.reply ?? raw.spoken ?? "").trim();
   if (!reply) return null;
 
-  const target = nested.target ? String(nested.target) : undefined;
-  const url = nested.url ? String(nested.url) : undefined;
-  const openLink = nested.openLink === true;
-  const openExternal = nested.openExternal === true;
+  const target = raw.target ? String(raw.target) : undefined;
+  const url = raw.url ? String(raw.url) : undefined;
+  const openLink = raw.openLink === true;
+  const openExternal = raw.openExternal === true;
   const extracted =
-    nested.extractedFields && typeof nested.extractedFields === "object"
-      ? (nested.extractedFields as Record<string, string>)
+    raw.extractedFields && typeof raw.extractedFields === "object"
+      ? (raw.extractedFields as Record<string, string>)
       : undefined;
   const fillMode =
-    nested.fillMode === "auto" ||
-    nested.fillMode === "manual" ||
-    nested.fillMode === "ask"
-      ? nested.fillMode
+    raw.fillMode === "auto" ||
+    raw.fillMode === "manual" ||
+    raw.fillMode === "ask"
+      ? raw.fillMode
       : undefined;
 
+  const nested =
+    raw.payload && typeof raw.payload === "object"
+      ? (raw.payload as Record<string, unknown>)
+      : {};
+
   const payload: Record<string, unknown> = {
-    openLink,
-    click: true,
-    heardAs: nested.heardAs ? String(nested.heardAs) : undefined,
+    ...nested,
+    openLink: nested.openLink === true || openLink,
+    click: nested.click !== false,
+    heardAs: raw.heardAs ? String(raw.heardAs) : undefined,
   };
   if (url) payload.url = url;
   if (openExternal) payload.openExternal = true;
   if (extracted && Object.keys(extracted).length) {
     payload.fields = extracted;
   }
-  if (nested.remember && typeof nested.remember === "object") {
-    payload.remember = nested.remember;
+  if (raw.remember && typeof raw.remember === "object") {
+    payload.remember = raw.remember;
   }
 
   return {
@@ -70,7 +70,7 @@ function parseIntent(raw: unknown): AssistantIntent | null {
     reply,
     extractedFields: extracted,
     fillMode,
-    endSession: nested.endSession === true,
+    endSession: raw.endSession === true,
     understood: true,
     useGuide: false,
   };
@@ -87,16 +87,16 @@ export async function interpretWithN8n(input: {
   rutMode?: string;
   facts?: Record<string, string>;
 }): Promise<AssistantIntent | null> {
-  const url = process.env.N8N_WEBHOOK_URL?.trim();
-  if (!url || process.env.USE_N8N_AS_BRAIN !== "true") return null;
+  const webhook = process.env.N8N_WEBHOOK_URL?.trim();
+  if (!webhook) return null;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5_500);
+  const timer = setTimeout(() => controller.abort(), 4_000);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(webhook, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
       signal: controller.signal,
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         sessionId: input.sessionId,
         text: input.text,
@@ -108,7 +108,7 @@ export async function interpretWithN8n(input: {
         pendingFields: input.pendingFields || {},
         rutMode: input.rutMode || "idle",
         facts: input.facts || {},
-        model: process.env.GEMINI_MODEL?.trim() || "gemini-2.5-flash",
+        model: process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash",
         geminiApiKey: process.env.GEMINI_API_KEY?.trim() || "",
       }),
     });
@@ -123,6 +123,10 @@ export async function interpretWithN8n(input: {
   }
 }
 
+/**
+ * Preferimos Gemini/local con timeout duro.
+ * n8n solo si Gemini falla — evita “gana el primero” con respuestas incorrectas.
+ */
 export async function interpretFast(input: {
   sessionId: string;
   text: string;
@@ -139,26 +143,9 @@ export async function interpretFast(input: {
     process.env.USE_N8N_AS_BRAIN === "true" &&
     Boolean(process.env.N8N_WEBHOOK_URL?.trim());
 
-  if (!useN8n) return input.local();
+  const local = await withTimeout(input.local(), 9_000, null);
+  if (local) return local;
 
-  const n8nPromise = interpretWithN8n(input);
-  const localPromise = input.local();
-
-  return await new Promise<AssistantIntent | null>((resolve) => {
-    let settled = false;
-    const finish = (intent: AssistantIntent | null) => {
-      if (settled || !intent) return;
-      settled = true;
-      resolve(intent);
-    };
-    void n8nPromise.then(finish).catch(() => undefined);
-    void localPromise.then(finish).catch(() => undefined);
-    setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      void Promise.all([n8nPromise, localPromise]).then(([a, b]) => {
-        resolve(a ?? b ?? null);
-      });
-    }, 5_800);
-  });
+  if (!useN8n) return null;
+  return withTimeout(interpretWithN8n(input), 4_000, null);
 }

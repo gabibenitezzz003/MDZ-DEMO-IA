@@ -1,7 +1,9 @@
-const CLOSING_DUPLICATE =
-  /\s*(¿Tenés alguna duda[^.?]*\??|Decime cómo seguimos\.?|¿Cómo seguimos\??)\s*$/i;
+import { neutralizeToUsted } from "@/lib/spoken-tone";
 
-/** Pronunciación natural para TTS en español rioplatense (no dictado STT). */
+const CLOSING_DUPLICATE =
+  /\s*(¿Tiene alguna duda[^.?]*\??|¿Tenés alguna duda[^.?]*\??|Dígame cómo seguimos\.?|Decime cómo seguimos\.?|¿Cómo seguimos\??)\s*$/i;
+
+/** Pronunciación natural para TTS en español neutro profesional. */
 function applyPronunciation(text: string): string {
   return text
     .replace(/\bDEMO\b/g, "demo")
@@ -40,6 +42,7 @@ export function humanizeSpoken(text: string): string {
   let t = text.replace(/\s+/g, " ").trim();
   if (!t) return t;
 
+  t = neutralizeToUsted(t);
   t = applyPronunciation(t);
 
   const closings = t.match(/¿[^?]+\?/g);
@@ -64,6 +67,7 @@ export function humanizeSpoken(text: string): string {
 export function prepareTourNarration(text: string): string {
   let t = text.replace(/\s+/g, " ").trim();
   if (!t) return t;
+  t = neutralizeToUsted(t);
   t = applyPronunciation(t);
   // Evitar rachas de puntos suspensivos que fragmentan el audio.
   t = t.replace(/\.{3,}/g, ".");

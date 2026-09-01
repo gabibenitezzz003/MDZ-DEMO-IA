@@ -1,3 +1,4 @@
+import { withTimeout } from "@/lib/async-timeout";
 import { buildAgentSystemPrompt } from "@/lib/agent-prompt";
 import type { AssistantIntent } from "@/lib/demo-assistant";
 import {
@@ -26,12 +27,18 @@ const ACTIONS: AgentAction[] = [
 ];
 
 const MODELS = [
-  process.env.GEMINI_MODEL?.trim(),
-  "gemini-2.5-flash",
-  "gemini-2.0-flash",
-  "gemini-2.0-flash-lite",
-  "gemini-1.5-flash",
-].filter((m): m is string => Boolean(m));
+  ...new Set(
+    [
+      process.env.GEMINI_MODEL?.trim(),
+      "gemini-3.6-flash",
+      "gemini-3.5-flash",
+    ].filter((m): m is string => Boolean(m))
+  ),
+].slice(0, 2);
+
+function isGemini3Family(model: string) {
+  return /^gemini-3(\.|-)/.test(model);
+}
 
 const STRING_FIELD = { type: "string" };
 
@@ -87,7 +94,7 @@ const RESPONSE_SCHEMA = {
   required: ["action", "reply"],
 };
 
-function parseIntent(raw: string): AssistantIntent | null {
+export function parseGeminiIntent(raw: string): AssistantIntent | null {
   const jsonMatch = raw.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;
   let data: Record<string, unknown>;
@@ -169,27 +176,44 @@ async function callGemini(
     },
   ];
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-goog-api-key": apiKey,
-      },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: buildAgentSystemPrompt() }] },
-        contents,
-        generationConfig: {
-          temperature: repair ? 0.15 : 0.4,
-          topP: 0.85,
-          maxOutputTokens: 360,
-          responseMimeType: "application/json",
-          responseSchema: RESPONSE_SCHEMA,
+  const controller = new AbortController();
+  const kill = setTimeout(() => controller.abort(), 6_000);
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+      {
+        method: "POST",
+        signal: controller.signal,
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
         },
-      }),
-    }
-  );
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: buildAgentSystemPrompt() }] },
+          contents,
+          generationConfig: isGemini3Family(model)
+            ? {
+                maxOutputTokens: repair ? 512 : 420,
+                responseMimeType: "application/json",
+                responseSchema: RESPONSE_SCHEMA,
+              }
+            : {
+                temperature: repair ? 0.15 : 0.4,
+                topP: 0.85,
+                maxOutputTokens: 360,
+                responseMimeType: "application/json",
+                responseSchema: RESPONSE_SCHEMA,
+              },
+        }),
+      }
+    );
+  } catch (err) {
+    console.error("Gemini fetch failed", model, err);
+    return null;
+  } finally {
+    clearTimeout(kill);
+  }
 
   if (!res.ok) {
     const err = await res.text().catch(() => "");
@@ -235,13 +259,21 @@ export async function interpretWithGemini(input: {
 
   for (const model of MODELS) {
     try {
-      let raw = await callGemini(apiKey, model, userPrompt, input.history);
+      let raw = await withTimeout(
+        callGemini(apiKey, model, userPrompt, input.history),
+        6_500,
+        null
+      );
       if (!raw) continue;
-      let intent = parseIntent(raw);
+      let intent = parseGeminiIntent(raw);
       if (!intent) {
-        raw = await callGemini(apiKey, model, userPrompt, input.history, true);
+        raw = await withTimeout(
+          callGemini(apiKey, model, userPrompt, input.history, true),
+          5_000,
+          null
+        );
         if (!raw) continue;
-        intent = parseIntent(raw);
+        intent = parseGeminiIntent(raw);
       }
       if (intent) return intent;
     } catch (err) {

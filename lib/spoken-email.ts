@@ -1,5 +1,3 @@
-/** Parse emails dictated in Río de la Plata Spanish (arroba, punto, zetas…). */
-
 const WORD_NUM: Record<string, number> = {
   un: 1,
   una: 1,
@@ -21,17 +19,42 @@ function countWord(raw: string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-/**
- * "gabi benitez con 3 zetas 003 arroba gmail punto com"
- * → gabibenitezzz003@gmail.com
- *
- * "benitez con 3 zetas" means the surname ends with three z's (not "benitez" + three more).
- */
+function applySpokenLetters(chunk: string): string {
+  return chunk
+    .replace(
+      /\b([a-z]*?)z+\s+con\s+(\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(zetas?|setas?)\b/gi,
+      (_full, base: string, num: string) => {
+        const count = Math.min(Math.max(countWord(num), 1), 10);
+        return `${base}${"z".repeat(count)}`;
+      }
+    )
+    .replace(
+      /\bcon\s+(\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(zetas?|setas?|equis)\b/gi,
+      (_full, num: string, letterWord: string) => {
+        const count = Math.min(Math.max(countWord(num), 1), 10);
+        const letter = /equis/.test(letterWord) ? "x" : "z";
+        return letter.repeat(count);
+      }
+    );
+}
+
+function normalizeEmail(local: string, domain: string): string | null {
+  let d = domain.replace(/[^a-z0-9.]/g, "");
+  const l = local.replace(/[^a-z0-9._+\-]/g, "");
+  if (/^gmail(\.com)?$/.test(d) || d === "gmailcom") d = "gmail.com";
+  else if (/^hotmail(\.com)?$/.test(d) || d === "hotmailcom") d = "hotmail.com";
+  else if (/^yahoo(\.com)?$/.test(d) || d === "yahoocom") d = "yahoo.com";
+  else if (/^outlook(\.com)?$/.test(d)) d = "outlook.com";
+  else if (d && !d.includes(".") && d.length > 2) d = `${d}.com`;
+  if (!l || l.length < 2 || !d.includes(".")) return null;
+  return `${l}@${d}`;
+}
+
 export function extractSpokenEmail(raw: string): string | null {
-  const direct = raw.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  const direct = raw.match(/\b[A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,}\b/i);
   if (direct) return direct[0].toLowerCase();
 
-  const lower = raw
+  const lower = String(raw || "")
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
@@ -39,7 +62,9 @@ export function extractSpokenEmail(raw: string): string | null {
     .replace(/\s+/g, " ")
     .trim();
 
-  if (!/(mail|correo|email|e-mail|arroba)/.test(lower)) return null;
+  if (!lower.includes("arroba") && !/(mail|correo|email|e-mail)/.test(lower)) {
+    return null;
+  }
 
   let chunk = lower;
   const tagged = lower.match(
@@ -47,59 +72,24 @@ export function extractSpokenEmail(raw: string): string | null {
   );
   if (tagged?.[1]) chunk = tagged[1].trim();
 
-  // "benitez con 3 zetas" → benitezzz (replace trailing z-run with the spoken count)
-  chunk = chunk.replace(
-    /\b([a-z]*?)z+\s+con\s+(\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(zetas?|ces|setas?|eses)\b/gi,
-    (_full, base: string, num: string) => {
-      const count = Math.min(Math.max(countWord(num), 1), 10);
-      return `${base}${"z".repeat(count)}`;
-    }
-  );
+  chunk = chunk.split(/\s+(?:soy|cuit|telefono|celu|finca|titular)\b/i)[0] || chunk;
+  chunk = applySpokenLetters(chunk);
 
-  // Standalone "con 3 zetas" (no letter before) → zzz
-  chunk = chunk.replace(
-    /\bcon\s+(\d+|un|una|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)\s+(zetas?|ces|setas?|eses|equis)\b/gi,
-    (_full, num: string, letterWord: string) => {
-      const count = Math.min(Math.max(countWord(num), 1), 10);
-      const letter = /zeta|seta/.test(letterWord)
-        ? "z"
-        : /equis/.test(letterWord)
-          ? "x"
-          : /ese/.test(letterWord)
-            ? "s"
-            : "c";
-      return letter.repeat(count);
-    }
-  );
-
-  chunk = chunk
-    .replace(/\barroba\b/g, " @ ")
-    .replace(/\bpunto\b/g, " . ")
-    .replace(/\bdot\b/g, " . ")
-    .replace(/\s*\.\s*/g, " . ");
+  if (chunk.includes("arroba")) {
+    const parts = chunk.split("arroba");
+    const left = parts[0] ?? "";
+    const right = parts.slice(1).join("arroba");
+    if (!left.trim() || !right.trim()) return null;
+    const localPart = left.trim().replace(/\s+/g, "");
+    const domainPart = right
+      .trim()
+      .replace(/\bpunto\b/g, ".")
+      .replace(/\bdot\b/g, ".")
+      .replace(/\s+/g, "");
+    return normalizeEmail(localPart, domainPart);
+  }
 
   const at = chunk.indexOf("@");
   if (at < 0) return null;
-
-  const local = chunk.slice(0, at).replace(/[^a-z0-9._+-]+/g, "");
-  let domain = chunk
-    .slice(at + 1)
-    .replace(/\s+/g, "")
-    .replace(/[^a-z0-9.]+/g, "");
-
-  // Common spoken domains
-  if (/^gmail(\.com)?$/.test(domain) || domain === "gmailcom") {
-    domain = "gmail.com";
-  } else if (/^hotmail(\.com)?$/.test(domain) || domain === "hotmailcom") {
-    domain = "hotmail.com";
-  } else if (/^yahoo(\.com)?$/.test(domain) || domain === "yahoocom") {
-    domain = "yahoo.com";
-  } else if (/^outlook(\.com)?$/.test(domain)) {
-    domain = "outlook.com";
-  } else if (domain && !domain.includes(".") && domain.length > 2) {
-    domain = `${domain}.com`;
-  }
-
-  if (local.length < 3 || !domain.includes(".")) return null;
-  return `${local}@${domain}`;
+  return normalizeEmail(chunk.slice(0, at), chunk.slice(at + 1));
 }

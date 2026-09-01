@@ -100,7 +100,8 @@
         "director",
         "autoridades",
         "alfredo draque"
-      ]
+      ],
+      "externalUrl": "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/#autoridades"
     },
     {
       "id": "mision",
@@ -109,7 +110,8 @@
       "keywords": [
         "misión",
         "mision"
-      ]
+      ],
+      "externalUrl": "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/#mision"
     },
     {
       "id": "vision",
@@ -118,7 +120,8 @@
       "keywords": [
         "visión",
         "vision"
-      ]
+      ],
+      "externalUrl": "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/#vision"
     },
     {
       "id": "funcion",
@@ -127,7 +130,8 @@
       "keywords": [
         "función",
         "funciones"
-      ]
+      ],
+      "externalUrl": "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/#funcion"
     },
     {
       "id": "normativa",
@@ -137,7 +141,8 @@
         "normativa",
         "leyes",
         "decretos"
-      ]
+      ],
+      "externalUrl": "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/#normativa"
     },
     {
       "id": "tramites",
@@ -146,7 +151,8 @@
       "keywords": [
         "trámites",
         "tramites"
-      ]
+      ],
+      "externalUrl": "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/#tramites"
     },
     {
       "id": "rut",
@@ -180,7 +186,8 @@
       "keywords": [
         "economía",
         "economia regional"
-      ]
+      ],
+      "externalUrl": "https://notebooklm.google.com/notebook/e1284bb0-5039-43a0-beaf-8ade96cc7586"
     },
     {
       "id": "manejo-hidrico",
@@ -192,7 +199,8 @@
         "hídrico",
         "hidrico",
         "riego"
-      ]
+      ],
+      "externalUrl": "https://notebooklm.google.com/notebook/f37005b8-cc10-4d5d-b2bb-4db5f7f57c8a"
     },
     {
       "id": "fruticultura",
@@ -202,7 +210,8 @@
       "keywords": [
         "fruticultura",
         "fruta"
-      ]
+      ],
+      "externalUrl": "https://notebooklm.google.com/notebook/382d2d6c-4c21-4b8f-b0e5-572c4a58194e"
     },
     {
       "id": "horticultura",
@@ -212,7 +221,8 @@
       "keywords": [
         "horticultura",
         "hortalizas"
-      ]
+      ],
+      "externalUrl": "https://notebooklm.google.com/notebook/27a6c19b-150a-4e51-b956-5630848e3ea8"
     },
     {
       "id": "frutos-secos",
@@ -223,7 +233,8 @@
         "frutos secos",
         "nuez",
         "almendra"
-      ]
+      ],
+      "externalUrl": "https://notebooklm.google.com/notebook/fc1c87c8-7a55-48c2-b765-b81e6808ff4e"
     },
     {
       "id": "cultivos-fruticolas",
@@ -242,7 +253,8 @@
       "keywords": [
         "durazno",
         "industria"
-      ]
+      ],
+      "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/durazno-3/"
     },
     {
       "id": "ciruela",
@@ -251,7 +263,8 @@
       "summary": "Informes tecnológicos, pronóstico de cosecha y reportes de ciruela.",
       "keywords": [
         "ciruela"
-      ]
+      ],
+      "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/ciruelas/"
     },
     {
       "id": "cereza",
@@ -260,7 +273,8 @@
       "summary": "Información productiva y reportes de cereza.",
       "keywords": [
         "cereza"
-      ]
+      ],
+      "externalUrl": "https://lookerstudio.google.com/reporting/dd323f33-73a9-4231-884e-d2851a7274c3"
     },
     {
       "id": "vid",
@@ -272,7 +286,8 @@
         "uva",
         "viticultura",
         "vino"
-      ]
+      ],
+      "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/vid/"
     },
     {
       "id": "fenologia",
@@ -284,7 +299,8 @@
         "fenologia",
         "estadios",
         "calendario"
-      ]
+      ],
+      "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/fenologia/"
     },
     {
       "id": "cultivos-horticolas",
@@ -302,7 +318,8 @@
       "summary": "Informes y datos productivos de ajo.",
       "keywords": [
         "ajo"
-      ]
+      ],
+      "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/ajo-3/"
     },
     {
       "id": "tomate",
@@ -312,7 +329,8 @@
       "keywords": [
         "tomate",
         "industria"
-      ]
+      ],
+      "externalUrl": "https://lookerstudio.google.com/reporting/9e531617-f450-412b-a0e0-fcfdf1f0ef70"
     },
     {
       "id": "cinturon-verde",
@@ -322,7 +340,8 @@
       "keywords": [
         "cinturón verde",
         "cinturon verde"
-      ]
+      ],
+      "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/cinturon-verde/"
     },
     {
       "id": "monitoreo-heladas",
@@ -333,7 +352,8 @@
         "heladas",
         "hielo",
         "frost"
-      ]
+      ],
+      "externalUrl": "https://aemsa.com.ar/aa/agronomia/pronostico/monitor-heladas/"
     },
     {
       "id": "monitoreo-catas",
@@ -365,7 +385,8 @@
         "agrometeorología",
         "clima",
         "meteo"
-      ]
+      ],
+      "externalUrl": "https://www.mendoza.gov.ar/contingencias/agrometeorologia/"
     },
     {
       "id": "mapas-agricolas",
@@ -376,7 +397,8 @@
         "mapas",
         "mapa agrícola",
         "cartografía"
-      ]
+      ],
+      "externalUrl": "https://agrimapas.mendoza.gov.ar/mapstore/#/"
     },
     {
       "id": "estaciones",
@@ -386,7 +408,8 @@
       "keywords": [
         "estaciones",
         "meteorológicas"
-      ]
+      ],
+      "externalUrl": "https://sites.google.com/view/aemsa/estaciones"
     },
     {
       "id": "visor-agricola",
@@ -397,7 +420,8 @@
         "visor",
         "mapa",
         "gis"
-      ]
+      ],
+      "externalUrl": "https://ide.mendoza.gov.ar/portal/apps/experiencebuilder/experience/?id=b9fbf1da74474aacae3a02a03005ee5f"
     },
     {
       "id": "radar",
@@ -408,7 +432,8 @@
         "radar",
         "tormenta",
         "granizo"
-      ]
+      ],
+      "externalUrl": "https://www.mendoza.gov.ar/contingencias/radar/"
     },
     {
       "id": "eventos-meteo",
@@ -419,7 +444,8 @@
         "eventos",
         "meteorológicos",
         "análisis"
-      ]
+      ],
+      "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/eventosmeteorologicos/"
     },
     {
       "id": "bpa-herramienta",
@@ -429,7 +455,8 @@
       "keywords": [
         "bpa",
         "buenas prácticas"
-      ]
+      ],
+      "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/bpa-3/"
     },
     {
       "id": "precios",
@@ -440,7 +467,8 @@
         "precios",
         "mercado",
         "consumidor"
-      ]
+      ],
+      "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/precios/"
     },
     {
       "id": "odk-collect",
@@ -455,7 +483,8 @@
         "agregar proyecto",
         "formulario celular",
         "relevamiento campo"
-      ]
+      ],
+      "externalUrl": "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/#odk-collect"
     },
     {
       "id": "capacitaciones",
@@ -476,7 +505,8 @@
         "bpa",
         "capacitación bpa",
         "inscripción"
-      ]
+      ],
+      "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/bpa-3/"
     },
     {
       "id": "encargado-finca",

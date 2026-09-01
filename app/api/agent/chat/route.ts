@@ -22,7 +22,7 @@ import {
 } from "@/lib/form-extract";
 import { interpretWithGemini } from "@/lib/gemini-brain";
 import { interpretFast } from "@/lib/n8n-brain";
-import { catalog, officialUrlFor } from "@/lib/page-knowledge";
+import { catalog, findBestSections, officialUrlFor } from "@/lib/page-knowledge";
 import type { ClientPageContext } from "@/lib/page-context";
 import {
   ackAndAskNext,
@@ -162,7 +162,27 @@ function withNavigationDefaults(
 
   if ((isMove || intent.action === "describe") && intent.target) {
     if (payload.click === undefined) payload.click = true;
-    if (!payload.url) payload.url = officialUrlFor(intent.target);
+    payload.url = officialUrlFor(intent.target);
+  }
+  if (intent.action === "open_external") {
+    const sectionGuess =
+      (typeof payload.sectionId === "string" && payload.sectionId) ||
+      (intent.target && catalog.sections.some((s) => s.id === intent.target)
+        ? intent.target
+        : undefined);
+    const catalogUrl = officialUrlFor(sectionGuess);
+    const current = String(intent.target || payload.url || "");
+    const home = catalog.sourceUrl.replace(/\/$/, "");
+    if (
+      !current ||
+      current.replace(/\/$/, "") === home ||
+      current.includes("direccion-de-agricultura")
+    ) {
+      intent = { ...intent, target: catalogUrl };
+      payload.url = catalogUrl;
+    } else if (!payload.url) {
+      payload.url = current;
+    }
   }
   const section = catalog.sections.find((s) => s.id === intent.target);
   const isCard =
@@ -373,8 +393,14 @@ async function handleChat(req: NextRequest) {
       ...normalizeRutFields(intent.extractedFields ?? {}),
       ...localFields,
     };
-    if (intentIsRut || hasStrongRutFields) {
-      setRutProgress(sessionId, { rutMode: "collecting" });
+    setRutProgress(sessionId, { rutMode: "collecting" });
+    if (hasStrongRutFields && !intentIsRut) {
+      intent = {
+        ...intent,
+        action: "open_rut",
+        understood: true,
+        useGuide: false,
+      };
     }
   }
 
@@ -393,26 +419,40 @@ async function handleChat(req: NextRequest) {
 
   const mentionedDocs = extractMentionedDocs(originalText);
 
-  // "abrime los informes / el link / el oficial" must hard-redirect, even if Gemini only described.
   if (
     wantsOpenResource(text) &&
     intent.action !== "open_rut" &&
     intent.action !== "fill_form" &&
     intent.action !== "ask_confirm"
   ) {
+    const hit = findBestSections(text, 1)[0];
     const sectionId =
       (intent.target &&
+      catalog.sections.some((s) => s.id === intent.target) &&
       intent.action !== "open_external" &&
       intent.action !== "scroll"
         ? intent.target
-        : undefined) || mem.lastSectionId;
-    const url =
+        : undefined) ||
+      hit?.id ||
+      (intent.payload?.sectionId
+        ? String(intent.payload.sectionId)
+        : undefined) ||
+      mem.lastSectionId;
+    const catalogUrl = officialUrlFor(sectionId);
+    const candidate =
+      (typeof intent.payload?.url === "string" && intent.payload.url) ||
       (intent.action === "open_external" && intent.target
         ? String(intent.target)
         : undefined) ||
-      (typeof intent.payload?.url === "string" ? intent.payload.url : undefined) ||
-      officialUrlFor(sectionId) ||
-      catalog.sourceUrl;
+      "";
+    const home = catalog.sourceUrl.replace(/\/$/, "");
+    const candidateNorm = candidate.replace(/\/$/, "");
+    const isGenericHome =
+      !candidate ||
+      candidateNorm === home ||
+      candidateNorm === `${home}/` ||
+      candidate.includes("direccion-de-agricultura");
+    const url = (!isGenericHome && candidate) || catalogUrl || catalog.sourceUrl;
     intent = {
       action: "open_external",
       target: String(url),
@@ -429,8 +469,7 @@ async function handleChat(req: NextRequest) {
         text
       )
         ? "Uy, disculpá: a veces el navegador bloquea la ventana. Tocá el botón azul «Abrir sitio oficial» abajo a la izquierda — con ese toque sí abre. Yo sigo acá."
-        : intent.reply ||
-          "Dale, te abro el recurso oficial en otra pestaña... Si no aparece, tocá «Abrir sitio oficial» en el aviso. Yo sigo acá escuchándote.",
+        : `Dale, te abro el recurso oficial${sectionId ? ` de ${sectionId.replace(/-/g, " ")}` : ""} en otra pestaña... Si no aparece, tocá «Abrir sitio oficial». Yo sigo acá.`,
     };
   }
 
@@ -543,10 +582,9 @@ async function handleChat(req: NextRequest) {
     }
   }
 
-  if (intent.action === "open_rut") {
+  if (intent.action === "open_rut" && !justGotFields) {
     setRutProgress(sessionId, { rutMode: "collecting", rutStep: 1 });
-    if (missingNow && !justGotFields) {
-      // Prefer a clean guided opener (don't stack Gemini + local ask).
+    if (missingNow) {
       const guided = wantsToPassRutData(originalText) || mem.rutMode === "collecting"
         ? askFirstField(RUT_ASK_HINT[missingNow])
         : `${intent.reply.replace(/\s+$/, "")} ${askFirstField(
@@ -556,6 +594,7 @@ async function handleChat(req: NextRequest) {
     }
   } else if (
     wantsToPassRutData(originalText) &&
+    !justGotFields &&
     (rutLive || /rut|registro|declaracion/.test(text))
   ) {
     setRutProgress(sessionId, { rutMode: "collecting", rutStep: 1 });
@@ -570,7 +609,7 @@ async function handleChat(req: NextRequest) {
     publish(buildEvent(sessionId, "open_rut"));
     publish(buildEvent(sessionId, "rut_focus_field", missing));
   } else if (
-    rutLive &&
+    (rutLive || justGotFields || intent.action === "open_rut") &&
     intent.fillMode !== "auto" &&
     intent.action !== "show_checklist" &&
     intent.action !== "open_external"
@@ -586,6 +625,7 @@ async function handleChat(req: NextRequest) {
 
     if (justGotFields && missing) {
       const salt = bumpAckSalt(sessionId);
+      publish(buildEvent(sessionId, "open_rut"));
       intent = {
         action: "fill_form",
         target: "rut",

@@ -210,6 +210,8 @@ export function DemoAssistant() {
   const abortRef = useRef<AbortController | null>(null);
   const lastSpokenRef = useRef("");
   const bargeArmedRef = useRef(false);
+  const tourCropIdRef = useRef<string>("ciruela");
+  const tourOfficialUrlRef = useRef<string>(OFFICIAL_PORTAL);
 
   const speechSupported = useMemo(
     () => (typeof window === "undefined" ? false : Boolean(getRecognitionCtor())),
@@ -336,7 +338,7 @@ export function DemoAssistant() {
       }
 
       if (speakingRef.current || busyRef.current) {
-        if (!done && liveTrim.length < 14) return;
+        if (!done && liveTrim.length < 8) return;
         if (!bargeArmedRef.current && speakingRef.current) return;
       }
 
@@ -513,12 +515,16 @@ export function DemoAssistant() {
           finished = true;
           if (speakWaiterRef.current === done) speakWaiterRef.current = null;
           window.clearTimeout(safety);
+          if (genId == null || genId === genIdRef.current) {
+            speakingRef.current = false;
+            setSpeakingUi(false);
+          }
           resolve();
         };
         speakWaiterRef.current = done;
         const safety = window.setTimeout(
           done,
-          audioBase64 ? 32000 : estimateSpeechMs(spoken) + 4000
+          audioBase64 ? 28000 : estimateSpeechMs(spoken) + 2500
         );
 
         if (genId != null && genId !== genIdRef.current) {
@@ -532,7 +538,7 @@ export function DemoAssistant() {
         bargeArmedRef.current = false;
         window.setTimeout(() => {
           bargeArmedRef.current = true;
-        }, 450);
+        }, 180);
         stopAudio(true);
         if (!runningRef.current && sessionLiveRef.current && !pushToTalkRef.current) {
           scheduleRestart(80);
@@ -557,15 +563,16 @@ export function DemoAssistant() {
 
   const resolveTourChoice = useCallback((id: string, fromGesture = false) => {
     if (id === "official") {
+      const url = tourOfficialUrlRef.current || officialUrlFor(tourCropIdRef.current);
       const opened = fromGesture
-        ? openOfficialFromUserGesture(OFFICIAL_PORTAL)
-        : navigateOfficialTab(OFFICIAL_PORTAL);
+        ? openOfficialFromUserGesture(url)
+        : navigateOfficialTab(url);
       window.dispatchEvent(
         new CustomEvent("demo:official-toast", {
           detail: {
-            url: OFFICIAL_PORTAL,
-            title: "Portal oficial · Agricultura",
-            sectionId: "home",
+            url,
+            title: `Oficial · ${tourCropIdRef.current}`,
+            sectionId: tourCropIdRef.current,
             blocked: !opened,
           },
         })
@@ -594,12 +601,14 @@ export function DemoAssistant() {
           if (!opts?.silentUser) {
             setLog((prev) => [...prev, { role: "user", text }]);
           }
-          resolveTourChoice(choiceId);
+          stopAudio();
+          resolveTourChoice(choiceId, true);
           return;
         }
-        if (!tourPauseListeningRef.current) {
-          tourCancelRef.current = true;
+        if (tourPauseListeningRef.current) {
+          return;
         }
+        tourCancelRef.current = true;
       }
 
       abortRef.current?.abort();
@@ -760,7 +769,10 @@ export function DemoAssistant() {
     tourCancelRef.current = false;
     tourRunningRef.current = true;
     setTourRunning(true);
-    const beats = buildDemoTourBeats(pickTourCrop());
+    const crop = pickTourCrop();
+    tourCropIdRef.current = crop.id;
+    tourOfficialUrlRef.current = officialUrlFor(crop.id);
+    const beats = buildDemoTourBeats(crop);
     setTourStep(0);
     setTourChapter(beats[0]?.chapter || "");
     setTourChoices(null);
@@ -807,7 +819,7 @@ export function DemoAssistant() {
         window.dispatchEvent(
           new CustomEvent("demo:agent-event", { detail: event })
         );
-        await sleep(360);
+        await sleep(220);
       }
 
       setLog((prev) => [
@@ -816,6 +828,7 @@ export function DemoAssistant() {
       ]);
 
       await narrate(beat.id, beat.spoken);
+      resumeListeningAfterSpeech();
       if (tourCancelRef.current) break;
       await sleep(beat.dwellMs);
 
@@ -826,13 +839,9 @@ export function DemoAssistant() {
           ...prev,
           { role: "assistant", text: beat.pause!.prompt },
         ]);
-        await narrate(`${beat.id}-pause`, beat.pause.prompt);
-        if (tourCancelRef.current) break;
-
-        // Open mic only during the choice window (buttons also work).
         tourPauseListeningRef.current = true;
         resumeListeningAfterSpeech();
-        const choiceId = await new Promise<string>((resolve) => {
+        const choicePromise = new Promise<string>((resolve) => {
           tourChoiceResolverRef.current = resolve;
           window.setTimeout(() => {
             if (tourChoiceResolverRef.current === resolve) {
@@ -843,8 +852,12 @@ export function DemoAssistant() {
             }
           }, beat.pause!.timeoutMs);
         });
+        void narrate(`${beat.id}-pause`, beat.pause.prompt);
+        const choiceId = await choicePromise;
+        if (tourCancelRef.current) break;
         lastChoice = choiceId;
         tourPauseListeningRef.current = false;
+        stopAudio();
         pauseListeningForSpeech();
         const label =
           beat.pause.choices.find((c) => c.id === choiceId)?.label || choiceId;

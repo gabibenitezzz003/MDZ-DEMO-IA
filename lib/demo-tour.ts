@@ -1,6 +1,5 @@
+import { officialUrlFor } from "@/lib/page-knowledge";
 import type { AgentAction } from "@/lib/types";
-
-/** Professional interactive ~3 min demo — producer journey + choice pauses. */
 
 export type TourChoice = {
   id: string;
@@ -16,19 +15,15 @@ export type TourBeat = {
   target?: string;
   payload?: Record<string, unknown>;
   dwellMs: number;
-  /** After speech, wait for user (voice/button) or timeout. */
   pause?: {
     prompt: string;
     choices: TourChoice[];
     timeoutMs: number;
     defaultChoiceId: string;
   };
-  /** Only play this beat if the previous pause chose this id. */
   skipUnlessChoice?: string;
 };
 
-const OFFICIAL =
-  "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/";
 const SIA = "https://sia.mendoza.gov.ar/account/login";
 
 const CROP_A = {
@@ -48,33 +43,37 @@ export function pickTourCrop(seed = Date.now()): typeof CROP_A | typeof CROP_B {
 }
 
 export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
+  const cropOfficial = officialUrlFor(crop.id);
+  const mapasOfficial = officialUrlFor("mapas-agricolas");
+  const radarOfficial = officialUrlFor("radar");
+
   return [
     {
       id: "intro",
       chapter: "Bienvenida",
       spoken:
-        "Buenas. Soy el asistente de la Dirección de Agricultura de Mendoza. Te voy a acompañar como si estuviéramos juntos frente a la pantalla: cultivo, herramientas, autoridades, precios, el QR de ODK y el RUT. En algunos momentos te pregunto cómo seguir. Arrancamos.",
+        "Buenas. Soy el asistente de la Dirección de Agricultura de Mendoza. Te acompaño por cultivo, herramientas, autoridades, precios, el QR de ODK y el RUT. En algunos momentos te pregunto cómo seguir.",
       action: "go_home",
-      dwellMs: 900,
+      dwellMs: 400,
     },
     {
       id: "crop",
       chapter: `Cultivo · ${crop.title}`,
-      spoken: `Primero, el productor. Te llevo a ${crop.title}: ${crop.why}. Miro la ficha… acá están informes y datos productivos.`,
+      spoken: `Primero, el productor. Te llevo a ${crop.title}: ${crop.why}. Acá están informes y datos productivos.`,
       action: "navigate",
       target: crop.id,
       payload: { openLink: false, click: true },
-      dwellMs: 800,
+      dwellMs: 300,
       pause: {
         prompt:
-          "¿Abrimos el portal oficial en otra pestaña, o seguimos a las herramientas?",
+          "¿Abrimos el recurso oficial de este cultivo, o seguimos a las herramientas?",
         timeoutMs: 12000,
         defaultChoiceId: "continue",
         choices: [
           {
             id: "official",
             label: "Abrir oficial",
-            match: /(oficial|abri|abr[ií]|si|dale|portal)/i,
+            match: /(oficial|abri|abr[ií]|si|dale|portal|seguimos con eso|eso)/i,
           },
           {
             id: "continue",
@@ -86,29 +85,29 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
     },
     {
       id: "crop-official",
-      chapter: "Portal oficial",
+      chapter: "Recurso oficial",
       spoken:
-        "Te abro el sitio oficial de la Dirección en otra pestaña. Yo me quedo acá; si el navegador bloqueó la ventana, tocá Abrir sitio oficial en el aviso.",
+        "Te abro el recurso oficial de este cultivo en otra pestaña. Yo me quedo acá; si el navegador bloqueó la ventana, tocá Abrir sitio oficial.",
       action: "open_external",
-      target: OFFICIAL,
+      target: cropOfficial,
       payload: {
         sectionId: crop.id,
-        url: OFFICIAL,
+        url: cropOfficial,
         forceTab: true,
-        title: `Portal oficial · ${crop.title}`,
+        title: `Oficial · ${crop.title}`,
       },
-      dwellMs: 1400,
+      dwellMs: 700,
       skipUnlessChoice: "official",
     },
     {
       id: "mapas",
       chapter: "Herramientas",
       spoken:
-        "Segundo: herramientas para decidir. Te marco Mapas agrícolas. Sirven para mirar la provincia y planificar. Al lado tenés visor, estaciones y radar.",
+        "Segundo: herramientas. Te marco Mapas agrícolas para mirar la provincia. Al lado tenés visor, estaciones y radar.",
       action: "navigate",
       target: "mapas-agricolas",
-      payload: { openLink: false, click: true },
-      dwellMs: 900,
+      payload: { openLink: false, click: true, url: mapasOfficial },
+      dwellMs: 300,
       pause: {
         prompt: "¿Querés que te muestre el radar, o seguimos a autoridades?",
         timeoutMs: 10000,
@@ -117,125 +116,166 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
           {
             id: "radar",
             label: "Ver radar",
-            match: /(radar|clima|tormenta|granizo)/i,
+            match: /(radar|clima|tormenta|granizo|dale|seguimos)/i,
           },
           {
             id: "continue",
             label: "Seguir",
-            match: /(segui|seguir|continua|autoridad|director|dale)/i,
+            match: /(segui|autoridad|director|no|despues)/i,
           },
         ],
       },
     },
     {
-      id: "radar-detour",
+      id: "radar",
       chapter: "Radar",
       spoken:
-        "Te marco el radar meteorológico. En Mendoza se usa mucho para tormentas y granizo. Ahora volvemos al hilo del recorrido.",
+        "Te marco el radar meteorológico y te abro el oficial en otra pestaña si hace falta.",
       action: "navigate",
       target: "radar",
-      payload: { openLink: false, click: true },
-      dwellMs: 1200,
+      payload: { openLink: true, click: true, url: radarOfficial },
+      dwellMs: 700,
       skipUnlessChoice: "radar",
     },
     {
       id: "autoridades",
       chapter: "Institucional",
       spoken:
-        "Tercero, la cara institucional. El director es el ingeniero Alfredo Draque. Contacto: direcciondeagricultura arroba mendoza punto gov punto ar, Casa de Gobierno, sexto piso.",
+        "Tercero: institucional. El director es el Ingeniero Agrónomo Magíster Alfredo Draque. Mail direcciondeagricultura arroba mendoza punto gov punto ar.",
       action: "navigate",
       target: "autoridades",
       payload: { openLink: false, click: true },
-      dwellMs: 1600,
+      dwellMs: 500,
     },
     {
       id: "precios",
       chapter: "Precios",
       spoken:
-        "Cuarto: relevamiento de precios al consumidor — hortalizas, frutas y huevos — con informes semanales.",
+        "Cuarto: relevamiento de precios al consumidor. Informes semanales de frutas, verduras y huevos.",
       action: "navigate",
       target: "precios",
       payload: { openLink: false, click: true },
-      dwellMs: 1200,
+      dwellMs: 400,
     },
     {
       id: "odk",
-      chapter: "ODK · QR",
+      chapter: "ODK Collect",
       spoken:
-        "El código QR no es un link web: es para ODK Collect en el celular. Se instala la app, se toca Agregar proyecto, y se escanea. Adentro lleva la URL del servidor y el proyecto. Acá ves un facsímil educativo embebido; en el oficial a veces el QR falla o no está.",
+        "Quinto: el código QR de ODK Collect. No es un link web: en el celular abrís Agregar proyecto y lo escaneás.",
       action: "navigate",
       target: "odk-collect",
       payload: { openLink: false, click: true },
-      dwellMs: 1000,
+      dwellMs: 400,
       pause: {
-        prompt: "¿Seguimos al RUT, el trámite más pedido?",
+        prompt: "¿Seguimos al RUT, o querés que te explique otra vez el QR?",
         timeoutMs: 10000,
-        defaultChoiceId: "continue",
+        defaultChoiceId: "rut",
         choices: [
           {
-            id: "continue",
+            id: "rut",
             label: "Ir al RUT",
-            match: /(rut|si|dale|segui|seguir|tramite)/i,
+            match: /(rut|registro|inscrip|dale|segui|seguimos)/i,
           },
           {
-            id: "stay",
-            label: "Quedarme acá",
-            match: /(qued|odk|qr|despues|no)/i,
+            id: "odk-again",
+            label: "Explicar QR",
+            match: /(qr|odk|explica|otra vez|repet)/i,
           },
         ],
       },
     },
     {
+      id: "odk-again",
+      chapter: "ODK · detalle",
+      spoken:
+        "En ODK Collect: Agregar proyecto, escanear el código QR, y queda el servidor listo. En la demo hay un facsímil educativo.",
+      action: "navigate",
+      target: "odk-collect",
+      payload: { openLink: false, click: true },
+      dwellMs: 500,
+      skipUnlessChoice: "odk-again",
+    },
+    {
       id: "rut",
       chapter: "RUT",
       spoken:
-        "Te abro el wizard del RUT. Podés dictarme CUIT, mail, nombre, teléfono, finca… yo los entiendo y te pregunto si los cargo. También te dejo el SIA oficial en otra pestaña.",
+        "Cierre: el RUT, Registro Único de Tierras. Te abro el wizard demo. Podés dictarme CUIT, mail y razón social.",
       action: "open_rut",
-      payload: { openExternal: true },
-      dwellMs: 1800,
-      skipUnlessChoice: "continue",
+      payload: { openExternal: false },
+      dwellMs: 500,
+      pause: {
+        prompt: "¿Arrancamos a cargar datos por voz, o abrimos el SIA oficial?",
+        timeoutMs: 10000,
+        defaultChoiceId: "voice",
+        choices: [
+          {
+            id: "voice",
+            label: "Cargar por voz",
+            match: /(voz|cargar|dict|cuit|mail|dale|segui|seguimos)/i,
+          },
+          {
+            id: "sia",
+            label: "Abrir SIA",
+            match: /(sia|oficial|login|web)/i,
+          },
+        ],
+      },
     },
     {
-      id: "close",
-      chapter: "Cierre",
+      id: "rut-sia",
+      chapter: "SIA oficial",
       spoken:
-        "Listo el recorrido. Podés volver a un cultivo, preguntarme por el QR, o dictarme datos del RUT. Decime cómo seguimos.",
-      action: "go_home",
-      dwellMs: 800,
+        "Te abro el login del SIA oficial. La declaración real se hace ahí; esta demo solo simula el recorrido.",
+      action: "open_external",
+      target: SIA,
+      payload: {
+        sectionId: "rut",
+        url: SIA,
+        forceTab: true,
+        title: "SIA · RUT oficial",
+      },
+      dwellMs: 700,
+      skipUnlessChoice: "sia",
     },
   ];
 }
 
-export const DEMO_TOUR_BEATS = buildDemoTourBeats(pickTourCrop(1));
-
-export function wantsGuidedTour(raw: string) {
-  const text = raw
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "");
-  return /(demo guiada|recorrido (de )?demo|empez[aá] la demo|tour guiado|mostrame la demo|hac[eé] la demo|^demo 3|^demo tres|recorrido completo)/.test(
-    text
-  );
-}
-
-export function wantsStopTour(raw: string) {
-  const text = raw
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "");
-  return /(parar demo|cort[aá] la demo|stop demo|frena(r)? la demo)/.test(text);
-}
-
 export function matchTourChoice(
-  raw: string,
+  text: string,
   choices: TourChoice[]
 ): string | null {
-  const text = raw.trim();
-  if (!text) return null;
+  const t = text.trim();
+  if (!t) return null;
+  if (/(dale|seguimos|seguimos con eso|eso|continua|ok|va|de una)/i.test(t)) {
+    const preferred =
+      choices.find((c) => c.id === "official") ||
+      choices.find((c) => c.id === "voice") ||
+      choices.find((c) => c.id === "rut") ||
+      choices[0];
+    if (preferred) return preferred.id;
+  }
   for (const c of choices) {
-    if (c.match.test(text)) return c.id;
+    if (c.match.test(t)) return c.id;
   }
   return null;
 }
 
-export { OFFICIAL, SIA };
+export function wantsGuidedTour(raw: string) {
+  const t = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+  return /(demo guiada|recorrido|tour|demo 3|tres minutos|viaje del productor)/.test(
+    t
+  );
+}
+
+export function wantsStopTour(raw: string) {
+  const t = raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+  return /(parar demo|corta(r)? (la )?demo|frena(r)? (la )?demo|stop demo|salir del recorrido)/.test(
+    t
+  );
+}

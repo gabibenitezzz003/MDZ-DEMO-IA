@@ -216,6 +216,9 @@ export function DemoAssistant() {
   const lastHeardTextRef = useRef("");
   const lastStartAtRef = useRef(0);
   const restartTimerRef = useRef<number | null>(null);
+  const interimCommitTimerRef = useRef<number | null>(null);
+  const lastInterimRef = useRef("");
+  const sttLangRef = useRef("es-AR");
   const startEngineRef = useRef<() => void>(() => undefined);
   const handleTextRef = useRef<(raw: string) => Promise<void>>(
     async () => undefined
@@ -241,27 +244,42 @@ export function DemoAssistant() {
     }
   }, []);
 
+  const clearInterimCommit = useCallback(() => {
+    if (interimCommitTimerRef.current != null) {
+      window.clearTimeout(interimCommitTimerRef.current);
+      interimCommitTimerRef.current = null;
+    }
+    lastInterimRef.current = "";
+  }, []);
+
   const disposeRecognition = useCallback((abort: boolean) => {
     const rec = recognitionRef.current;
     recognitionRef.current = null;
     runningRef.current = false;
     startingRef.current = false;
+    clearInterimCommit();
     if (!rec) return;
     rec.onend = null;
     rec.onerror = null;
     rec.onresult = null;
     rec.onstart = null;
-    if (!abort) return;
+    // Siempre frenar el motor: si solo se anulan handlers, Edge/Chrome
+    // siguen capturando audio sin entregar resultados (mic “muerto”).
     try {
-      rec.abort?.();
+      if (abort && typeof rec.abort === "function") rec.abort();
+      else rec.stop();
     } catch {
       try {
         rec.stop();
       } catch {
-        // ignore
+        try {
+          rec.abort?.();
+        } catch {
+          // ignore
+        }
       }
     }
-  }, []);
+  }, [clearInterimCommit]);
 
   const stopAudio = (keepSpeakingFlag = false) => {
     window.speechSynthesis?.cancel();
@@ -310,25 +328,77 @@ export function DemoAssistant() {
     }, delayMs);
   }, [clearRestartTimer]);
 
+  const acceptHeard = useCallback((raw: string) => {
+    const done = raw.trim();
+    if (!done) return;
+
+    const echoWindowOpen = Date.now() < lastSpokenUntilRef.current;
+    const spoken = lastSpokenRef.current;
+
+    if (
+      (speakingRef.current || bargeInFlightRef.current) &&
+      looksLikeEcho(done, spoken)
+    ) {
+      setInterim("");
+      return;
+    }
+    if (
+      echoWindowOpen &&
+      spoken &&
+      looksLikeEcho(done, spoken) &&
+      normalizeHeard(done).length >= 24
+    ) {
+      setInterim("");
+      return;
+    }
+
+    if (speakingRef.current) {
+      stopAudio();
+      speakingRef.current = false;
+      setSpeakingUi(false);
+    }
+
+    const now = Date.now();
+    if (
+      lastHeardTextRef.current &&
+      now - lastHeardAtRef.current < 1600 &&
+      isNearDuplicateHeard(done, lastHeardTextRef.current)
+    ) {
+      setInterim("");
+      return;
+    }
+    lastHeardTextRef.current = normalizeHeard(done) || done.toLowerCase();
+    lastHeardAtRef.current = now;
+    bargeInFlightRef.current = false;
+    clearInterimCommit();
+    setInterim("");
+    void handleTextRef.current(done);
+  }, [clearInterimCommit]);
+
   const startRecognitionEngine = useCallback(() => {
     if (!sessionLiveRef.current) return;
     if (tourRunningRef.current) return;
     if (pushToTalkRef.current) return;
-    if (startingRef.current || runningRef.current) return;
-    if (Date.now() - lastStartAtRef.current < 250) {
-      scheduleRestart(250);
+    if (Date.now() - lastStartAtRef.current < 280) {
+      scheduleRestart(280);
+      return;
+    }
+
+    // Si hay un motor colgado/vivo, matarlo y reintentar: no dejar handlers nulos.
+    if (startingRef.current || runningRef.current || recognitionRef.current) {
+      disposeRecognition(true);
+      scheduleRestart(240);
       return;
     }
 
     const Ctor = getRecognitionCtor();
     if (!Ctor) return;
 
-    disposeRecognition(false);
-
     const rec = new Ctor();
     recognitionRef.current = rec;
-    rec.lang = "es-AR";
-    rec.continuous = true;
+    rec.lang = sttLangRef.current;
+    // continuous:true en Edge/Chrome a menudo no marca isFinal en frases cortas.
+    rec.continuous = false;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
 
@@ -350,10 +420,23 @@ export function DemoAssistant() {
       }
 
       const liveTrim = live.trim();
-      if (liveTrim) setInterim(liveTrim);
-
-      const echoWindowOpen = Date.now() < lastSpokenUntilRef.current;
       const spoken = lastSpokenRef.current;
+
+      if (liveTrim) {
+        setInterim(liveTrim);
+        lastInterimRef.current = liveTrim;
+        if (interimCommitTimerRef.current != null) {
+          window.clearTimeout(interimCommitTimerRef.current);
+        }
+        // Si el motor nunca manda isFinal (bug típico), confirmar el interim.
+        interimCommitTimerRef.current = window.setTimeout(() => {
+          interimCommitTimerRef.current = null;
+          const pending = lastInterimRef.current.trim();
+          if (!pending || pending.length < 2) return;
+          if (!sessionLiveRef.current) return;
+          acceptHeard(pending);
+        }, 850);
+      }
 
       // Cortá el audio apenas se escucha voz real (no eco).
       if (
@@ -369,53 +452,14 @@ export function DemoAssistant() {
 
       const done = finalText.trim();
       if (!done) return;
-
-      // Eco SOLO mientras el asistente habla (o corte de barge-in).
-      // Fuera de eso, no filtrar: bloqueaba pedidos reales del usuario.
-      if (
-        (speakingRef.current || bargeInFlightRef.current) &&
-        looksLikeEcho(done, spoken)
-      ) {
-        setInterim("");
-        return;
-      }
-      if (
-        echoWindowOpen &&
-        spoken &&
-        looksLikeEcho(done, spoken) &&
-        normalizeHeard(done).length >= 24
-      ) {
-        setInterim("");
-        return;
-      }
-
-      if (speakingRef.current) {
-        stopAudio();
-        speakingRef.current = false;
-        setSpeakingUi(false);
-      }
-
-      const now = Date.now();
-      if (
-        lastHeardTextRef.current &&
-        now - lastHeardAtRef.current < 1600 &&
-        isNearDuplicateHeard(done, lastHeardTextRef.current)
-      ) {
-        setInterim("");
-        return;
-      }
-      lastHeardTextRef.current = normalizeHeard(done) || done.toLowerCase();
-      lastHeardAtRef.current = now;
-      bargeInFlightRef.current = false;
-      setInterim("");
-      void handleTextRef.current(done);
+      acceptHeard(done);
     };
 
     rec.onerror = (ev) => {
       startingRef.current = false;
 
       if (ev.error === "no-speech") {
-        // Chrome dispara onend después; no reinicies acá
+        // Chrome/Edge disparan onend después; el restart va ahí.
         return;
       }
 
@@ -424,11 +468,21 @@ export function DemoAssistant() {
         return;
       }
 
+      if (ev.error === "language-not-supported") {
+        if (sttLangRef.current !== "es-ES") {
+          sttLangRef.current = "es-ES";
+          runningRef.current = false;
+          recognitionRef.current = null;
+          scheduleRestart(120);
+          return;
+        }
+      }
+
       if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
         sessionLiveRef.current = false;
         setSessionLive(false);
         setListening(false);
-        disposeRecognition(false);
+        disposeRecognition(true);
         setLog((prev) => [
           ...prev,
           {
@@ -448,16 +502,22 @@ export function DemoAssistant() {
             text: "No encuentro el micrófono. Revisá que esté conectado y que ninguna otra app lo esté usando.",
           },
         ]);
+        scheduleRestart(800);
         return;
       }
+
+      runningRef.current = false;
+      scheduleRestart(400);
     };
 
     rec.onend = () => {
       startingRef.current = false;
       runningRef.current = false;
-      recognitionRef.current = null;
+      if (recognitionRef.current === rec) recognitionRef.current = null;
       if (sessionLiveRef.current && !pushToTalkRef.current) {
-        scheduleRestart(speakingRef.current || busyRef.current ? 120 : 220);
+        scheduleRestart(speakingRef.current || busyRef.current ? 160 : 200);
+      } else {
+        setListening(false);
       }
     };
 
@@ -469,9 +529,9 @@ export function DemoAssistant() {
       startingRef.current = false;
       runningRef.current = false;
       recognitionRef.current = null;
-      scheduleRestart(600);
+      scheduleRestart(500);
     }
-  }, [scheduleRestart]);
+  }, [acceptHeard, disposeRecognition, scheduleRestart]);
 
   startEngineRef.current = startRecognitionEngine;
 
@@ -494,15 +554,16 @@ export function DemoAssistant() {
     setSpeakingUi(false);
     bargeArmedRef.current = false;
     bargeInFlightRef.current = false;
-    lastSpokenUntilRef.current = Date.now() + 300;
+    lastSpokenUntilRef.current = Date.now() + 250;
+    lastSpokenRef.current = "";
     if (!sessionLiveRef.current) return;
     if (pushToTalkRef.current) {
       setListening(false);
       return;
     }
-    // Forzar ciclo de reconocimiento (Chrome a veces deja el STT “muerto”).
+    // Forzar ciclo de reconocimiento (Edge/Chrome a veces dejan el STT “muerto”).
     disposeRecognition(true);
-    scheduleRestart(120);
+    scheduleRestart(260);
   }, [disposeRecognition, scheduleRestart]);
 
   const hardStopSession = useCallback(() => {
@@ -610,7 +671,7 @@ export function DemoAssistant() {
         }
 
         const finishSpeak = () => {
-          lastSpokenUntilRef.current = Date.now() + 400;
+          lastSpokenUntilRef.current = Date.now() + 250;
           done();
           // Reactivar micrófono sí o sí al terminar de hablar.
           if (
@@ -618,13 +679,12 @@ export function DemoAssistant() {
             !tourRunningRef.current &&
             !pushToTalkRef.current
           ) {
-            scheduleRestart(80);
+            disposeRecognition(true);
+            scheduleRestart(260);
           }
           window.setTimeout(() => {
-            if (Date.now() >= lastSpokenUntilRef.current) {
-              lastSpokenRef.current = "";
-            }
-          }, 500);
+            lastSpokenRef.current = "";
+          }, 400);
         };
 
         if (audioBase64) {
@@ -641,7 +701,7 @@ export function DemoAssistant() {
           finishSpeak();
         }
       }),
-    [scheduleRestart]
+    [disposeRecognition, scheduleRestart]
   );
 
   const resolveTourChoice = useCallback((id: string, fromGesture = false) => {

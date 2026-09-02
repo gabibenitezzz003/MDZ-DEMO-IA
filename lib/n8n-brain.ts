@@ -8,6 +8,7 @@ const ACTIONS: AgentAction[] = [
   "navigate",
   "highlight",
   "open_external",
+  "open_whatsapp",
   "open_rut",
   "rut_set_step",
   "rut_focus_field",
@@ -109,7 +110,6 @@ export async function interpretWithN8n(input: {
         rutMode: input.rutMode || "idle",
         facts: input.facts || {},
         model: process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash",
-        geminiApiKey: process.env.GEMINI_API_KEY?.trim() || "",
       }),
     });
     if (!res.ok) return null;
@@ -143,7 +143,7 @@ export async function interpretFast(input: {
     process.env.USE_N8N_AS_BRAIN === "true" &&
     Boolean(process.env.N8N_WEBHOOK_URL?.trim());
 
-  const local = await withTimeout(input.local(), 9_000, null);
+  const local = await withTimeout(input.local(), 5_500, null);
   if (local) return local;
 
   if (!useN8n) return null;

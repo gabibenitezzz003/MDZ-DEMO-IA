@@ -28,7 +28,7 @@ export function LandingSections() {
       <SectionBlock
         id="tramites"
         title="Trámites"
-        subtitle="Accesos a gestiones productivas. En esta DEMO el RUT incluye un wizard guiado por voz."
+        subtitle="Accesos a gestiones productivas. En esta DEMO el registro RUT se deriva a WhatsApp con un agente especializado."
       >
         <div className="grid gap-4 md:grid-cols-2">
           <div
@@ -65,122 +65,11 @@ export function LandingSections() {
               Consultas con IA
             </h3>
             <p className="mt-2 text-sm leading-relaxed text-slate-600">
-              Pedile al asistente un cultivo, mapas, precios, el RUT o “qué es el
-              QR”. Te marca la sección y te lo explica en simple.
+              Pedile al asistente un cultivo, mapas, precios o el RUT. Si sos
+              del equipo técnico, pedile la vista de ingeniería.
             </p>
           </div>
 
-          <div
-            id="odk-collect"
-            data-section-id="odk-collect"
-            className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-white p-6 shadow-sm md:col-span-2"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0 max-w-2xl">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800">
-                  Campo · celular
-                </p>
-                <h3 className="mt-1 text-xl font-semibold text-mza-blue-dark">
-                  ODK Collect · QR
-                </h3>
-                <p className="mt-2 text-sm leading-relaxed text-slate-600">
-                  El código QR <strong>no es un link web</strong>: configura el
-                  proyecto en la app <strong>ODK Collect</strong> (Android) para
-                  cargar formularios en el campo sin tipear el servidor a mano.
-                </p>
-              </div>
-            </div>
-
-            <div className="mt-6 grid items-start gap-8 md:grid-cols-[200px_1fr]">
-              <div className="justify-self-center rounded-2xl border-2 border-amber-300 bg-white p-4 shadow-sm md:justify-self-start">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src="/odk/demo-odk-collect.png"
-                  alt="QR DEMO educativo para ODK Collect — facsímil, no oficial"
-                  width={168}
-                  height={168}
-                  className="mx-auto h-[168px] w-[168px]"
-                />
-                <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-wide text-amber-800">
-                  Facsímil DEMO
-                </p>
-              </div>
-
-              <div className="grid gap-5 sm:grid-cols-2">
-                <div>
-                  <h4 className="text-sm font-semibold text-mza-blue-dark">
-                    Cómo usarlo
-                  </h4>
-                  <ol className="mt-2 space-y-2 text-sm leading-relaxed text-slate-700">
-                    <li className="flex gap-2">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-200 text-xs font-bold text-amber-950">
-                        1
-                      </span>
-                      <span>Instalá ODK Collect (Android)</span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-200 text-xs font-bold text-amber-950">
-                        2
-                      </span>
-                      <span>
-                        En la app tocá <strong>Agregar proyecto</strong>
-                      </span>
-                    </li>
-                    <li className="flex gap-2">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-amber-200 text-xs font-bold text-amber-950">
-                        3
-                      </span>
-                      <span>
-                        Elegí <strong>Escanear código QR</strong>
-                      </span>
-                    </li>
-                  </ol>
-                </div>
-
-                <div>
-                  <h4 className="text-sm font-semibold text-mza-blue-dark">
-                    Qué configura el QR
-                  </h4>
-                  <ul className="mt-2 space-y-2 text-sm leading-relaxed text-slate-700">
-                    <li>
-                      <strong className="text-slate-900">server_url</strong>
-                      <span className="block text-slate-600">
-                        Servidor de formularios ODK
-                      </span>
-                    </li>
-                    <li>
-                      <strong className="text-slate-900">
-                        usuario / protocolo
-                      </strong>
-                      <span className="block text-slate-600">
-                        Cómo se autentica la app
-                      </span>
-                    </li>
-                    <li>
-                      <strong className="text-slate-900">proyecto</strong>
-                      <span className="block text-slate-600">
-                        Nombre que queda listo en Collect
-                      </span>
-                    </li>
-                  </ul>
-                </div>
-
-                <div className="rounded-xl border border-amber-200 bg-amber-50/90 p-3 text-xs leading-relaxed text-amber-950 sm:col-span-2">
-                  Este QR es un <strong>facsímil educativo</strong> (
-                  <a
-                    href="/odk/demo-odk-payload.json"
-                    className="font-semibold underline underline-offset-2"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    ver payload JSON
-                  </a>
-                  ). En el portal oficial a veces falla o no está publicado; el
-                  oficial apuntaría al servidor real de la Dirección.
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       </SectionBlock>
 
@@ -204,6 +93,7 @@ export function LandingSections() {
             />
           ))}
         </div>
+
       </SectionBlock>
 
       <SectionBlock

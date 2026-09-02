@@ -11,6 +11,11 @@ export type ClientPageContext = {
   officialToastOpen?: boolean;
 };
 
+export function sectionHashUrl(pathname: string | undefined, target: string) {
+  const path = pathname || "/";
+  return path === "/" ? `/#${target}` : `${path}#${target}`;
+}
+
 export function formatPageContext(ctx?: ClientPageContext | null): string {
   if (!ctx) return "Sin contexto de página.";
   const parts = [
@@ -51,7 +56,9 @@ export function readBrowserPageContext(): ClientPageContext {
         `[data-section-id="${sectionId}"], #${CSS.escape(sectionId)}`
       )
     : null;
-  const root = highlighted || byId;
+  // El hash expresa la última navegación confirmada; un highlight anterior
+  // puede seguir animándose unos segundos y no debe pisar ese contexto.
+  const root = byId || highlighted;
 
   if (root) {
     sectionId =
@@ -64,6 +71,14 @@ export function readBrowserPageContext(): ClientPageContext {
   }
 
   let rutStep: number | undefined;
+  if (pathname.startsWith("/ingenieria")) {
+    sectionId = sectionId || "ingenieria";
+    sectionTitle = sectionTitle || "Ingeniería · ODK Central";
+    sectionBlurb =
+      sectionBlurb ||
+      "Vista técnica: QR de Collect, formularios de Central y tablero simulado.";
+  }
+
   if (pathname.startsWith("/rut")) {
     const active = document.querySelector<HTMLElement>(
       "[data-rut-step].bg-mza-blue, button[aria-current='step']"

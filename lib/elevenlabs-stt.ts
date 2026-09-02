@@ -1,6 +1,6 @@
 import { withTimeout } from "@/lib/async-timeout";
 
-const STT_TIMEOUT_MS = 12_000;
+const STT_TIMEOUT_MS = 6_000;
 
 /**
  * Transcribe short browser recordings via ElevenLabs Scribe.

@@ -39,7 +39,7 @@ export function Hero() {
           <ul className="mt-4 space-y-2 text-sm text-sky-50">
             <li>• Encontrá informes por cultivo (ciruela, ajo, vid…)</li>
             <li>• Ubicá mapas, radar y estaciones meteorológicas</li>
-            <li>• Recorré el RUT paso a paso sin perderte</li>
+            <li>• Registro RUT por WhatsApp (agente con voz, fotos y docs)</li>
           </ul>
           <p className="mt-4 text-xs text-sky-200">
             Usá el chat de la derecha: voz institucional + control de la página.

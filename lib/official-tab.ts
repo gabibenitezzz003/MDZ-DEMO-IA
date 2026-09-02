@@ -2,6 +2,16 @@
 
 let officialWin: Window | null = null;
 
+declare global {
+  interface Window {
+    __demoLastOfficialOpen?: { url: string; at: number };
+  }
+}
+
+function markOpened(url: string) {
+  window.__demoLastOfficialOpen = { url, at: Date.now() };
+}
+
 export function primeOfficialTab() {
   if (typeof window === "undefined") return;
   try {
@@ -28,11 +38,14 @@ export function primeOfficialTab() {
  */
 export function navigateOfficialTab(url: string): boolean {
   if (typeof window === "undefined" || !url) return false;
+  const recent = window.__demoLastOfficialOpen;
+  if (recent?.url === url && Date.now() - recent.at < 8_000) return true;
 
   try {
     if (officialWin && !officialWin.closed) {
       officialWin.location.href = url;
       officialWin.focus();
+      markOpened(url);
       return true;
     }
   } catch {
@@ -43,6 +56,7 @@ export function navigateOfficialTab(url: string): boolean {
     const named = window.open(url, "demo-agricultura-oficial");
     if (named) {
       officialWin = named;
+      markOpened(url);
       try {
         named.focus();
       } catch {
@@ -53,22 +67,6 @@ export function navigateOfficialTab(url: string): boolean {
   } catch {
     // fall through
   }
-
-  try {
-    const blank = window.open(url, "_blank");
-    if (blank) {
-      officialWin = blank;
-      try {
-        blank.focus();
-      } catch {
-        // ignore
-      }
-      return true;
-    }
-  } catch {
-    // fall through
-  }
-
   return false;
 }
 
@@ -77,22 +75,12 @@ export function openOfficialFromUserGesture(url: string): boolean {
   if (typeof window === "undefined" || !url) return false;
   try {
     const w = window.open(url, "_blank", "noopener,noreferrer");
+    // Algunos navegadores devuelven null por noopener aunque abren la pestaña.
+    markOpened(url);
     if (w) {
       officialWin = w;
       return true;
     }
-  } catch {
-    // ignore
-  }
-  // Last resort: top-level navigation via temporary anchor (still needs gesture).
-  try {
-    const a = document.createElement("a");
-    a.href = url;
-    a.target = "_blank";
-    a.rel = "noopener noreferrer";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
     return true;
   } catch {
     return false;

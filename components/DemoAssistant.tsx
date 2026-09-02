@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSessionId } from "@/components/SessionProvider";
+import { usePathname } from "next/navigation";
+import { useSessionId, useSessionReady } from "@/components/SessionProvider";
 import {
   buildDemoTourBeats,
   matchTourChoice,
@@ -9,6 +10,7 @@ import {
   wantsStopTour,
   type TourChoice,
 } from "@/lib/demo-tour";
+import { buildEngineeringTourBeats } from "@/lib/engineering-tour";
 import {
   navigateOfficialTab,
   openOfficialFromUserGesture,
@@ -20,8 +22,12 @@ import type { AgentEvent } from "@/lib/types";
 import {
   blobToBase64,
   computeRms,
+  createVadGate,
   pickRecorderMime,
+  stepVadGate,
+  voiceBandRatio,
 } from "@/lib/mic-capture";
+import { isLikelyNoiseTranscript } from "@/lib/noise-transcript";
 import {
   estimateSpeechMs,
   isNearDuplicateHeard,
@@ -31,7 +37,29 @@ import {
 } from "@/lib/voice-stt-guards";
 
 const OFFICIAL_PORTAL = officialUrlFor();
-const CHAT_TIMEOUT_MS = 14_000;
+const CHAT_TIMEOUT_MS = 16_000;
+const INTERRUPT_ACK = "Dale, seguimos con eso. ";
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+
+function unlockPlayback() {
+  if (typeof window === "undefined") return;
+  try {
+    window.speechSynthesis?.resume();
+  } catch {
+    // ignore
+  }
+  try {
+    const a = new Audio(SILENT_WAV);
+    a.volume = 0.01;
+    void a.play().then(
+      () => a.pause(),
+      () => undefined
+    );
+  } catch {
+    // ignore
+  }
+}
 
 type SpeechRecognitionLike = {
   lang: string;
@@ -81,7 +109,8 @@ function base64ToBlobUrl(audioBase64: string, mime = "audio/mpeg") {
 function playAudioBase64(
   audioBase64: string,
   mime = "audio/mpeg",
-  onEnd?: () => void
+  onEnd?: () => void,
+  onBlocked?: () => void
 ) {
   const objectUrl = base64ToBlobUrl(audioBase64, mime);
   const audio = new Audio(objectUrl);
@@ -120,7 +149,12 @@ function playAudioBase64(
       err && typeof err === "object" && "name" in err
         ? String((err as { name: string }).name)
         : "";
-    if (name !== "AbortError") done();
+    if (name === "AbortError") return;
+    if (name === "NotAllowedError" && onBlocked) {
+      onBlocked();
+      return;
+    }
+    done();
   });
   safety = window.setTimeout(done, 40000);
   return audio;
@@ -141,6 +175,11 @@ function speakBrowser(text: string, onEnd?: () => void) {
     return;
   }
 
+  try {
+    window.speechSynthesis.resume();
+  } catch {
+    // ignore
+  }
   window.speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "es-AR";
@@ -164,19 +203,36 @@ function sleep(ms: number) {
   });
 }
 
-const SUGGESTIONS = [
+const PRODUCER_SUGGESTIONS = [
   "Demo guiada",
-  "Mostrame el RUT",
+  "Quiero el RUT por WhatsApp",
   "Llevame a ciruela",
   "Mapas agrícolas",
   "Quién es el director",
-  "Qué es el QR",
+  "Vista ingeniería",
   "Dónde estoy",
   "Explicame esto",
 ];
 
+const ENGINEERING_SUGGESTIONS = [
+  "Demo guiada",
+  "Qué es el QR",
+  "Qué formularios hay",
+  "Cómo es el flujo",
+  "Mostrame el tablero",
+  "Certificación de equipos",
+  "Fenología 2026",
+  "Dónde estoy",
+];
+
 export function DemoAssistant() {
   const sessionId = useSessionId();
+  const sessionReady = useSessionReady();
+  const pathname = usePathname();
+  const engineeringView = pathname.startsWith("/ingenieria");
+  const suggestions = engineeringView
+    ? ENGINEERING_SUGGESTIONS
+    : PRODUCER_SUGGESTIONS;
   const [open, setOpen] = useState(true);
   const [sessionLive, setSessionLive] = useState(false);
   const [, setListening] = useState(false);
@@ -196,19 +252,51 @@ export function DemoAssistant() {
   const [tourChoices, setTourChoices] = useState<TourChoice[] | null>(null);
   const [tourPausePrompt, setTourPausePrompt] = useState("");
   const [officialHint, setOfficialHint] = useState(false);
+  const [whatsappUrl, setWhatsappUrl] = useState("");
   const tourChoiceResolverRef = useRef<((id: string) => void) | null>(null);
   const [log, setLog] = useState<{ role: "user" | "assistant"; text: string }[]>(
     [
       {
         role: "assistant",
-        text: "Hola, ¿cómo está? Active el micrófono verde o ▶ Demo 3 min para el recorrido completo. Marco la página, abro el portal oficial en otra pestaña y lo guío en el RUT por voz.",
+        text: "Hola, ¿cómo andás? Tocá el micrófono verde y pedime lo que necesites. Te llevo a la sección y te abro el oficial; yo me quedo acá.",
       },
     ]
   );
   const tourCancelRef = useRef(false);
   const tourRunningRef = useRef(false);
   const pushToTalkRef = useRef(false);
-  const runGuidedTourRef = useRef<() => Promise<void>>(async () => undefined);
+  const runGuidedTourRef = useRef<
+    (mode?: "producer" | "engineering") => Promise<void>
+  >(async () => undefined);
+
+  useEffect(() => {
+    if (!sessionReady) return;
+    let active = true;
+    void fetch("/api/agent/whatsapp-rut", { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data: { url?: string | null } | null) => {
+        if (active) setWhatsappUrl(data?.url || "");
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [sessionReady]);
+
+  useEffect(() => {
+    if (!engineeringView) return;
+    setLog((prev) => {
+      if (prev.length === 1 && prev[0].role === "assistant") {
+        return [
+          {
+            role: "assistant",
+            text: "Estás en ingeniería. Tocá el micrófono y pedime el QR, un formulario o la demo guiada. Te recorro todo.",
+          },
+        ];
+      }
+      return prev;
+    });
+  }, [engineeringView]);
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -247,6 +335,8 @@ export function DemoAssistant() {
   const lastSpokenUntilRef = useRef(0);
   const bargeArmedRef = useRef(false);
   const bargeInFlightRef = useRef(false);
+  const interruptedRef = useRef(false);
+  const interruptNowRef = useRef<() => void>(() => undefined);
   const tourCropIdRef = useRef<string>("ciruela");
   const tourOfficialUrlRef = useRef<string>(OFFICIAL_PORTAL);
 
@@ -333,6 +423,20 @@ export function DemoAssistant() {
     }
   };
 
+  const interruptNow = useCallback(() => {
+    interruptedRef.current = true;
+    bargeInFlightRef.current = true;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    genIdRef.current += 1;
+    busyRef.current = false;
+    setBusy(false);
+    stopAudio();
+    speakingRef.current = false;
+    setSpeakingUi(false);
+  }, []);
+  interruptNowRef.current = interruptNow;
+
   const tourPauseListeningRef = useRef(false);
 
   const scheduleRestart = useCallback((delayMs = 180) => {
@@ -381,25 +485,35 @@ export function DemoAssistant() {
   }, []);
 
   const sendRecordingForStt = useCallback(async (blob: Blob) => {
+    // Clips muy cortos suelen ser ruido ambiente, no voz útil.
     if (!blob.size || blob.size < 400) return;
-    if (sttBusyRef.current || busyRef.current) return;
+    if (sttBusyRef.current) return;
     sttBusyRef.current = true;
     setInterim("Transcribiendo…");
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
       const audioBase64 = await blobToBase64(blob);
       const res = await fetch("/api/agent/stt", {
         method: "POST",
+        signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           audioBase64,
           mimeType: blob.type || recorderMimeRef.current,
         }),
       });
-      const data = (await res.json()) as { ok?: boolean; text?: string };
+      const data = (await res.json()) as {
+        ok?: boolean;
+        text?: string;
+        error?: string;
+      };
+      if (!res.ok || data.ok === false) {
+        throw new Error(data.error || `STT HTTP ${res.status}`);
+      }
       const text = (data.text || "").trim();
       setInterim("");
-      if (text) {
-        // Reuse the same echo/dedupe path as browser STT.
+      if (text && !isLikelyNoiseTranscript(text)) {
         acceptHeardRef.current?.(text);
       }
     } catch (err) {
@@ -413,6 +527,7 @@ export function DemoAssistant() {
         },
       ]);
     } finally {
+      window.clearTimeout(timeout);
       sttBusyRef.current = false;
     }
   }, []);
@@ -466,6 +581,7 @@ export function DemoAssistant() {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
+        channelCount: 1,
       },
     });
     mediaStreamRef.current = stream;
@@ -481,14 +597,14 @@ export function DemoAssistant() {
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.35;
     source.connect(analyser);
     analyserRef.current = analyser;
     serverMicRef.current = true;
     setListening(true);
 
-    const SPEECH = 0.028;
-    const BARGE = 0.045;
-    const SILENCE_MS = 700;
+    const gate = createVadGate();
+    let lastTs = performance.now();
     let lastLevelUi = 0;
 
     const tick = () => {
@@ -496,40 +612,43 @@ export function DemoAssistant() {
       if (!sessionLiveRef.current || !serverMicRef.current) return;
       const analyserNode = analyserRef.current;
       if (!analyserNode) return;
+      const now = performance.now();
+      const dt = Math.min(80, Math.max(8, now - lastTs));
+      lastTs = now;
       const level = computeRms(analyserNode);
-      if (Math.abs(level - lastLevelUi) > 0.01 || level < 0.01) {
+      const ratio = voiceBandRatio(analyserNode, ctx.sampleRate);
+      if (Math.abs(level - lastLevelUi) > 0.008 || level < 0.01) {
         lastLevelUi = level;
         setMicLevel(level);
       }
 
       if (tourRunningRef.current) return;
 
-      // Mientras el asistente habla: solo barge-in (cortar TTS).
+      const { start, end, barge } = stepVadGate(gate, level, ratio, dt);
+
+      // Una voz sostenida puede interrumpir; los picos breves siguen filtrados
+      // por bargeHoldMs en el VAD.
       if (speakingRef.current) {
-        if (level > BARGE) {
-          stopAudio();
-          speakingRef.current = false;
-          setSpeakingUi(false);
+        if (barge && !vadSpeakingRef.current) {
+          interruptNowRef.current();
+          vadSpeakingRef.current = true;
+          beginUtteranceRecorder();
         }
         return;
       }
 
-      if (busyRef.current || sttBusyRef.current) return;
+      if (sttBusyRef.current) return;
       if (pushToTalkRef.current) return;
 
-      if (level > SPEECH) {
-        if (!vadSpeakingRef.current) {
-          vadSpeakingRef.current = true;
-          beginUtteranceRecorder();
-        }
+      if (start && !vadSpeakingRef.current) {
+        if (busyRef.current) interruptNowRef.current();
+        vadSpeakingRef.current = true;
+        beginUtteranceRecorder();
+      }
+      if (end && vadSpeakingRef.current) {
+        vadSpeakingRef.current = false;
         silenceAtRef.current = 0;
-      } else if (vadSpeakingRef.current) {
-        if (!silenceAtRef.current) silenceAtRef.current = Date.now();
-        if (Date.now() - silenceAtRef.current >= SILENCE_MS) {
-          vadSpeakingRef.current = false;
-          silenceAtRef.current = 0;
-          endUtteranceRecorder();
-        }
+        endUtteranceRecorder();
       }
     };
     vadRafRef.current = requestAnimationFrame(tick);
@@ -538,6 +657,10 @@ export function DemoAssistant() {
   const acceptHeard = useCallback((raw: string) => {
     const done = raw.trim();
     if (!done) return;
+    if (isLikelyNoiseTranscript(done)) {
+      setInterim("");
+      return;
+    }
 
     const echoWindowOpen = Date.now() < lastSpokenUntilRef.current;
     const spoken = lastSpokenRef.current;
@@ -608,7 +731,7 @@ export function DemoAssistant() {
     recognitionRef.current = rec;
     rec.lang = sttLangRef.current;
     // continuous:true en Edge/Chrome a menudo no marca isFinal en frases cortas.
-    rec.continuous = false;
+    rec.continuous = true;
     rec.interimResults = true;
     rec.maxAlternatives = 1;
 
@@ -645,7 +768,7 @@ export function DemoAssistant() {
           if (!pending || pending.length < 2) return;
           if (!sessionLiveRef.current) return;
           acceptHeard(pending);
-        }, 850);
+        }, 2000);
       }
 
       // Cortá el audio apenas se escucha voz real (no eco).
@@ -653,11 +776,8 @@ export function DemoAssistant() {
         speakingRef.current &&
         shouldCutSpeechOnInterim(liveTrim, spoken)
       ) {
-        bargeInFlightRef.current = true;
+        interruptNowRef.current();
         bargeArmedRef.current = true;
-        stopAudio();
-        speakingRef.current = false;
-        setSpeakingUi(false);
       }
 
       const done = finalText.trim();
@@ -751,13 +871,9 @@ export function DemoAssistant() {
     setInterim("");
     bargeArmedRef.current = false;
     bargeInFlightRef.current = false;
-    window.setTimeout(() => {
-      bargeArmedRef.current = true;
-    }, 120);
-    if (!runningRef.current && !pushToTalkRef.current) {
-      scheduleRestart(60);
-    }
-  }, [scheduleRestart]);
+    disposeRecognition(true);
+    if (!serverMicRef.current) setListening(false);
+  }, [disposeRecognition]);
 
   const resumeListeningAfterSpeech = useCallback(() => {
     speakingRef.current = false;
@@ -797,18 +913,20 @@ export function DemoAssistant() {
   }, [clearRestartTimer, disposeRecognition, stopServerMic]);
 
   const startVoiceSession = useCallback(async () => {
+    unlockPlayback();
     speakingRef.current = false;
     setSpeakingUi(false);
     sessionLiveRef.current = true;
     setSessionLive(true);
 
     try {
+      primeOfficialTab();
       await startServerMic();
       setLog((prev) => [
         ...prev,
         {
           role: "assistant",
-          text: "Micrófono abierto. Hablá con calma: “hola”, “mostrame el RUT” o “llevame a los mapas”.",
+          text: "Te escucho. Pedime lo que necesites y te llevo. Si hablo de más, cortame y seguimos con lo nuevo.",
         },
       ]);
       return;
@@ -886,19 +1004,8 @@ export function DemoAssistant() {
         lastSpokenRef.current = spoken;
         // Ventana de eco corta: se recorta al terminar el audio.
         lastSpokenUntilRef.current = Date.now() + 900;
-        speakingRef.current = true;
-        setSpeakingUi(true);
-        bargeArmedRef.current = true;
-        bargeInFlightRef.current = false;
+        pauseListeningForSpeech();
         stopAudio(true);
-        // Mantener el micrófono vivo para poder interrumpir.
-        if (
-          !tourRunningRef.current &&
-          sessionLiveRef.current &&
-          !pushToTalkRef.current
-        ) {
-          if (!runningRef.current) scheduleRestart(40);
-        }
 
         const finishSpeak = () => {
           lastSpokenUntilRef.current = Date.now() + 250;
@@ -926,7 +1033,11 @@ export function DemoAssistant() {
           audioRef.current = playAudioBase64(
             audioBase64,
             audioMime || "audio/mpeg",
-            finishSpeak
+            finishSpeak,
+            () => {
+              setVoiceMode("browser");
+              speakBrowser(spoken, finishSpeak);
+            }
           );
         } else if (spoken.trim()) {
           setVoiceMode("browser");
@@ -935,10 +1046,11 @@ export function DemoAssistant() {
           finishSpeak();
         }
       }),
-    [disposeRecognition, scheduleRestart]
+    [disposeRecognition, pauseListeningForSpeech, scheduleRestart]
   );
 
   const resolveTourChoice = useCallback((id: string, fromGesture = false) => {
+    const wa = whatsappUrl;
     const openOnGesture: Record<string, { url: string; title: string; sectionId: string }> = {
       official: {
         url: tourOfficialUrlRef.current || officialUrlFor(tourCropIdRef.current),
@@ -955,6 +1067,15 @@ export function DemoAssistant() {
         title: "SIA · RUT oficial",
         sectionId: "rut",
       },
+      ...(wa
+        ? {
+            whatsapp: {
+              url: wa,
+              title: "RUT por WhatsApp",
+              sectionId: "rut",
+            },
+          }
+        : {}),
     };
     const external = openOnGesture[id];
     if (external) {
@@ -977,7 +1098,7 @@ export function DemoAssistant() {
     setTourChoices(null);
     setTourPausePrompt("");
     resolver?.(id);
-  }, []);
+  }, [whatsappUrl]);
 
   const resumeMicAfterTourRef = useRef(false);
 
@@ -1015,6 +1136,10 @@ export function DemoAssistant() {
         return;
       }
 
+      unlockPlayback();
+      const resumeInterrupted =
+        interruptedRef.current || speakingRef.current || busyRef.current;
+      interruptedRef.current = false;
       abortRef.current?.abort();
       stopAudio();
       speakingRef.current = false;
@@ -1078,7 +1203,8 @@ export function DemoAssistant() {
           event?: AgentEvent;
           confirm?: ConfirmFill;
           endSession?: boolean;
-          startTour?: boolean;
+          startTour?: boolean | "engineering" | "producer";
+          needsTts?: boolean;
         };
 
         if (myGen !== genIdRef.current) return;
@@ -1087,8 +1213,11 @@ export function DemoAssistant() {
           throw new Error(data.error || `chat HTTP ${res.status}`);
         }
 
-        const spoken = data.spoken || data.reply || "Listo.";
-        // Liberar "Pensando…" antes de narrar para no trabar la UI.
+        let spoken = data.spoken || data.reply || "Listo.";
+        if (resumeInterrupted && !/^dale,?\s+seguimos/i.test(spoken)) {
+          spoken = `${INTERRUPT_ACK}${spoken}`;
+        }
+        // Liberar "Pensando…" y navegar antes de esperar la voz.
         busyRef.current = false;
         setBusy(false);
         setLog((prev) => [...prev, { role: "assistant", text: spoken }]);
@@ -1100,7 +1229,36 @@ export function DemoAssistant() {
           );
         }
 
-        await speakLine(spoken, data.audioBase64, data.audioMime, myGen);
+        let audioBase64 = data.audioBase64;
+        let audioMime = data.audioMime;
+        if (!audioBase64 && data.needsTts !== false && spoken.trim()) {
+          try {
+            const ttsRes = await fetch("/api/agent/tts", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              signal: controller.signal,
+              body: JSON.stringify({ text: spoken, sessionId }),
+            });
+            if (myGen !== genIdRef.current) return;
+            if (ttsRes.ok) {
+              const tts = (await ttsRes.json()) as {
+                audioBase64?: string | null;
+                audioMime?: string;
+              };
+              audioBase64 = tts.audioBase64 || undefined;
+              audioMime = tts.audioMime;
+            }
+          } catch (ttsErr) {
+            const ttsName =
+              ttsErr && typeof ttsErr === "object" && "name" in ttsErr
+                ? String((ttsErr as { name: string }).name)
+                : "";
+            if (ttsName === "AbortError" || myGen !== genIdRef.current) return;
+          }
+        }
+        if (myGen !== genIdRef.current) return;
+
+        await speakLine(spoken, audioBase64, audioMime, myGen);
         if (myGen !== genIdRef.current) return;
 
         if (data.endSession) {
@@ -1111,7 +1269,9 @@ export function DemoAssistant() {
         if (data.startTour) {
           await sleep(300);
           if (myGen !== genIdRef.current) return;
-          await runGuidedTourRef.current();
+          await runGuidedTourRef.current(
+            data.startTour === "engineering" ? "engineering" : "producer"
+          );
           return;
         }
 
@@ -1123,6 +1283,7 @@ export function DemoAssistant() {
             ? String((err as { name: string }).name)
             : "";
         if (name === "AbortError") {
+          if (myGen !== genIdRef.current || interruptedRef.current) return;
           setLog((prev) => [
             ...prev,
             {
@@ -1217,11 +1378,15 @@ export function DemoAssistant() {
     [fetchTourAudio, speakLine]
   );
 
-  const runGuidedTour = useCallback(async () => {
+  const runGuidedTour = useCallback(async (mode?: "producer" | "engineering") => {
     if (tourRunningRef.current) return;
     tourCancelRef.current = false;
     tourRunningRef.current = true;
     setTourRunning(true);
+    const engineeringTour =
+      mode === "engineering" ||
+      (mode !== "producer" &&
+        window.location.pathname.startsWith("/ingenieria"));
 
     // Demo 3 min = solo botones + narración. Mic apagado para que no trabe ni interrumpa.
     resumeMicAfterTourRef.current = sessionLiveRef.current;
@@ -1242,7 +1407,9 @@ export function DemoAssistant() {
     const crop = pickTourCrop();
     tourCropIdRef.current = crop.id;
     tourOfficialUrlRef.current = officialUrlFor(crop.id);
-    const beats = buildDemoTourBeats(crop);
+    const beats = engineeringTour
+      ? buildEngineeringTourBeats()
+      : buildDemoTourBeats(crop);
     setTourStep(0);
     setTourChapter(beats[0]?.chapter || "");
     setTourChoices(null);
@@ -1253,7 +1420,9 @@ export function DemoAssistant() {
       ...prev,
       {
         role: "assistant",
-        text: "▶ Demo 3 min — recorrido fluido. El micrófono queda apagado: en las pausas tocá un botón para seguir o abrir enlaces.",
+        text: engineeringTour
+          ? "▶ Recorrido de ingeniería. El micrófono queda apagado: en las pausas tocá un botón. Después podés preguntar un formulario."
+          : "▶ Demo 3 min — recorrido fluido. El micrófono queda apagado: en las pausas tocá un botón para seguir o abrir enlaces.",
       },
     ]);
 
@@ -1311,12 +1480,19 @@ export function DemoAssistant() {
       }
 
       if (beat.action) {
+        const wa =
+          beat.action === "open_whatsapp"
+            ? whatsappUrl || undefined
+            : undefined;
         const event: AgentEvent = {
           id: `tour-${beat.id}-${Date.now()}`,
           sessionId: sessionId || "tour",
           action: beat.action,
-          target: beat.target,
-          payload: beat.payload,
+          target: beat.target || wa,
+          payload: {
+            ...(beat.payload || {}),
+            ...(wa ? { whatsappUrl: wa, alsoNavigate: true } : {}),
+          },
           createdAt: Date.now(),
         };
         window.dispatchEvent(
@@ -1385,7 +1561,9 @@ export function DemoAssistant() {
         role: "assistant",
         text: tourCancelRef.current
           ? "Listo, frené el recorrido. Cuando quieras, tocá el micrófono o seguí por texto."
-          : "Fin del recorrido. Tocá el micrófono para dictar el RUT, o pedime un cultivo / el QR por texto.",
+          : engineeringTour
+            ? "Fin del recorrido técnico. Pedime un formulario, el QR o el tablero y te lo marco."
+            : "Fin del recorrido. Pedime un cultivo o abrí WhatsApp para el RUT. Si sos del equipo técnico, pedime la vista de ingeniería.",
       },
     ]);
 
@@ -1401,7 +1579,9 @@ export function DemoAssistant() {
           ...prev,
           {
             role: "assistant",
-            text: "Micrófono listo. Pasame CUIT, mail o razón social cuando quieras.",
+            text: engineeringTour
+              ? "Micrófono listo. Preguntame un formulario, el QR o el flujo."
+              : "Micrófono listo. Decime qué cultivo, mapa o trámite querés consultar.",
           },
         ]);
       }
@@ -1413,6 +1593,7 @@ export function DemoAssistant() {
     narrate,
     scheduleRestart,
     sessionId,
+    whatsappUrl,
   ]);
 
   runGuidedTourRef.current = runGuidedTour;
@@ -1452,6 +1633,16 @@ export function DemoAssistant() {
   }, []);
 
   useEffect(() => {
+    const onHint = (event: Event) => {
+      const text = (event as CustomEvent<{ text?: string }>).detail?.text;
+      if (!text?.trim()) return;
+      setLog((prev) => [...prev, { role: "assistant", text: text.trim() }]);
+    };
+    window.addEventListener("demo:assistant-hint", onHint);
+    return () => window.removeEventListener("demo:assistant-hint", onHint);
+  }, []);
+
+  useEffect(() => {
     if (!sessionLive || pushToTalk || tourRunning) return;
     const id = window.setInterval(() => {
       if (!sessionLiveRef.current) return;
@@ -1469,12 +1660,25 @@ export function DemoAssistant() {
     };
   }, [hardStopSession]);
 
-  if (!sessionId) return null;
+  // Mismo markup en SSR y primer paint del cliente (sessionId llega en useEffect).
+  if (!sessionReady || !sessionId) {
+    return (
+      <div className="fixed bottom-4 right-4 z-[60]">
+        <button
+          type="button"
+          className="rounded-full bg-mza-blue px-4 py-3 text-sm font-semibold text-white shadow-lg"
+          aria-label="Abrir asistente"
+        >
+          Asistente
+        </button>
+      </div>
+    );
+  }
 
   const statusLine = tourRunning
     ? speakingUi
-      ? `Demo 3 min · ${tourChapter}`
-      : `Demo 3 min · tocá un botón`
+      ? `${engineeringView ? "Recorrido técnico" : "Demo 3 min"} · ${tourChapter}`
+      : `${engineeringView ? "Recorrido técnico" : "Demo 3 min"} · tocá un botón`
     : !sessionLive
       ? voiceMode === "gabi"
         ? "Voz lista"
@@ -1598,7 +1802,7 @@ export function DemoAssistant() {
                   ? "Hablando…"
                   : pushToTalk
                     ? "Mantener 🎤 para hablar"
-                    : "Escuchando — hablá con calma"}
+                    : "Te escucho · cortame cuando quieras"}
               </span>
               {sessionLive && !speakingUi ? (
                 <span
@@ -1693,21 +1897,36 @@ export function DemoAssistant() {
               disabled={busy || tourRunning}
               onClick={() => {
                 primeOfficialTab();
-                void runGuidedTour();
+                void runGuidedTour(
+                  engineeringView ? "engineering" : "producer"
+                );
               }}
               className="rounded-full bg-gradient-to-r from-mza-gold/90 to-amber-400 px-2.5 py-1 text-[10px] font-bold text-amber-950 shadow-sm hover:brightness-105 disabled:opacity-50"
             >
-              ▶ Demo 3 min
+              ▶ {engineeringView ? "Recorrido técnico" : "Demo 3 min"}
             </button>
-            {SUGGESTIONS.map((s) => (
+            {suggestions.map((s) => (
               <button
                 key={s}
                 type="button"
-                disabled={busy || tourRunning}
+                disabled={tourRunning}
                 onClick={() => {
-                  primeOfficialTab();
+                  if (
+                    s === "Demo guiada" ||
+                    s === "Llevame a ciruela" ||
+                    s === "Mapas agrícolas" ||
+                    s === "Qué es el QR" ||
+                    s === "Mostrame el tablero"
+                  ) {
+                    primeOfficialTab();
+                  }
+                  if (s === "Quiero el RUT por WhatsApp" && whatsappUrl) {
+                    openOfficialFromUserGesture(whatsappUrl);
+                  }
                   if (s === "Demo guiada") {
-                    void runGuidedTour();
+                    void runGuidedTour(
+                      engineeringView ? "engineering" : "producer"
+                    );
                   } else void handleText(s);
                 }}
                 className="rounded-full border border-slate-200/80 bg-white px-2 py-1 text-[10px] text-slate-600 shadow-sm hover:border-mza-blue/30 hover:text-mza-blue disabled:opacity-50"
@@ -1787,7 +2006,7 @@ export function DemoAssistant() {
             />
             <button
               type="submit"
-              disabled={busy || tourRunning || !input.trim()}
+              disabled={tourRunning || !input.trim()}
               className="rounded-full bg-mza-blue px-3.5 py-2 text-sm font-semibold text-white shadow disabled:opacity-40"
             >
               Ir
@@ -1795,13 +2014,13 @@ export function DemoAssistant() {
           </form>
 
           <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2 text-[10px] text-slate-500">
-            <label className="flex cursor-pointer items-center gap-1.5">
+            <label className="flex cursor-pointer items-center gap-1.5" title="Recomendado si hay mucho ruido ambiente">
               <input
                 type="checkbox"
                 checked={pushToTalk}
                 onChange={(e) => setPushToTalk(e.target.checked)}
               />
-              Push-to-talk
+              Push-to-talk (anti-ruido)
             </label>
             {sessionLive ? (
               <button

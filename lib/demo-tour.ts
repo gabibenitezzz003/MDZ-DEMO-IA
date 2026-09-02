@@ -151,7 +151,7 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "odk",
       chapter: "ODK Collect",
       spoken:
-        "Este es el código Q R de O D K Collect. No es un enlace web. En el celular abra Agregar proyecto y escanéelo.",
+        "Los formularios de campo están en la vista Ingeniería, para el equipo técnico. Ahí está el QR real de ODK Collect y los XForms de Central.",
       action: "navigate",
       target: "odk-collect",
       payload: { openLink: false, click: true },
@@ -164,8 +164,8 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
         choices: [
           {
             id: "rut",
-            label: "Ir al RUT",
-            match: /(rut|registro|inscrip|dale|segui|seguimos)/i,
+            label: "RUT por WhatsApp",
+            match: /(rut|registro|inscrip|whatsapp|wsp|dale|segui|seguimos)/i,
           },
           {
             id: "odk-again",
@@ -179,7 +179,7 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "odk-again",
       chapter: "ODK · detalle",
       spoken:
-        "En O D K Collect: Agregar proyecto, escanear el código Q R, y queda el servidor listo. En esta demo hay un facsímil educativo.",
+        "En O D K Collect: Agregar proyecto, escanear el código Q R, y queda el servidor listo.",
       action: "navigate",
       target: "odk-collect",
       payload: { openLink: false, click: true },
@@ -190,20 +190,23 @@ export function buildDemoTourBeats(crop = pickTourCrop()): TourBeat[] {
       id: "rut",
       chapter: "RUT",
       spoken:
-        "Cerramos con el RUT, el Registro Único de Tierras. Le abro el asistente de carga. Después puede dictarme cuit, correo y razón social.",
-      action: "open_rut",
-      payload: { openExternal: false },
+        "Cerramos con el RUT, el Registro Único de Tierras. El registro real lo hace un agente por WhatsApp: valida datos, pide fotos y documentación, y puede responder por texto o audio.",
+      action: "open_whatsapp",
+      payload: {
+        alsoNavigate: true,
+        sectionId: "rut",
+      },
       dwellMs: 350,
       pause: {
         prompt:
-          "Elija una opción: comenzamos a cargar datos por voz, o abrimos el S I A oficial.",
+          "Elija una opción: abrir WhatsApp para registrarse, o el S I A oficial.",
         timeoutMs: 0,
-        defaultChoiceId: "voice",
+        defaultChoiceId: "whatsapp",
         choices: [
           {
-            id: "voice",
-            label: "Cargar por voz",
-            match: /(voz|cargar|dict|cuit|mail|dale|segui|seguimos)/i,
+            id: "whatsapp",
+            label: "Abrir WhatsApp",
+            match: /(whatsapp|wsp|registro|inscrip|dale|segui|seguimos|voz)/i,
           },
           {
             id: "sia",
@@ -233,6 +236,7 @@ export function matchTourChoice(
   if (/(dale|seguimos|seguimos con eso|eso|continua|ok|va|de una|de acuerdo)/i.test(t)) {
     const preferred =
       choices.find((c) => c.id === "continue") ||
+      choices.find((c) => c.id === "whatsapp") ||
       choices.find((c) => c.id === "rut") ||
       choices.find((c) => c.id === "voice") ||
       choices[0];

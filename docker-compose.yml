@@ -9,6 +9,12 @@ services:
     restart: unless-stopped
     env_file:
       - .env.production
+    environment:
+      SPEACHES_URL: ${SPEACHES_DOCKER_URL:-http://host.docker.internal:8771}
+      N8N_WEBHOOK_URL: ${N8N_DOCKER_WEBHOOK_URL:-http://host.docker.internal:5678/webhook/demo-agricultura}
+      N8N_BASE_URL: ${N8N_DOCKER_BASE_URL:-http://host.docker.internal:5678}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       # Solo localhost: nginx (o el reverse proxy) habla con el mundo
       - "127.0.0.1:3000:3000"

@@ -2,6 +2,7 @@ export type AgentAction =
   | "navigate"
   | "highlight"
   | "open_external"
+  | "open_whatsapp"
   | "open_rut"
   | "rut_set_step"
   | "rut_focus_field"

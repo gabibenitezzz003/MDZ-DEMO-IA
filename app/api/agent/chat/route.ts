@@ -16,6 +16,11 @@ import {
 } from "@/lib/chat-memory";
 import { interpretUtterance } from "@/lib/demo-assistant";
 import { wantsGuidedTour } from "@/lib/demo-tour";
+import {
+  isEngineeringPath,
+  resolveEngineeringQuestion,
+  wantsEngineeringTour,
+} from "@/lib/engineering-qa";
 import { synthesizeSpeech } from "@/lib/elevenlabs";
 import {
   detectFillPreference,
@@ -39,13 +44,31 @@ import {
   wantsToPassRutData,
 } from "@/lib/rut-conversation";
 import { buildSectionGuide } from "@/lib/section-guide";
-import { wantsListeningCheck } from "@/lib/intent-guards";
+import { ApiSecurityError, secureApiRequest } from "@/lib/api-security";
+import {
+  classifyConversationMode,
+  resolveLocalIntent,
+  shouldPreferLocalRules,
+} from "@/lib/local-intent-first";
+import { wantsListeningCheck, wantsSimpleGreeting } from "@/lib/intent-guards";
 import { wantsOdkHelp } from "@/lib/spoken-fields";
-import { humanizeSpoken, prepareTourNarration } from "@/lib/spoken-style";
+import { greetingReply } from "@/lib/greeting-reply";
+import { displaySpoken, humanizeSpoken, prepareTourNarration } from "@/lib/spoken-style";
 import { conflictSpoken } from "@/lib/field-merge";
 import { wantsOpenResource } from "@/lib/open-resource";
+import {
+  wantsExplainCurrentPage,
+  wantsPageLocation,
+} from "@/lib/page-question";
 import { correctSpeechTranscript } from "@/lib/stt-correct";
 import type { AgentEvent } from "@/lib/types";
+import {
+  buildWhatsAppRutUrl,
+  wantsRutDemoWizard,
+  wantsRutExplainOnly,
+  wantsRutWhatsAppHandoff,
+  whatsAppRutSpoken,
+} from "@/lib/whatsapp-rut";
 
 const RUT_ASK_ORDER = [
   "cuit",
@@ -87,18 +110,6 @@ function nextRutField(pending: Record<string, string>) {
   return RUT_ASK_ORDER.find((key) => !pending[key]);
 }
 
-function wantsWhereAmI(raw: string) {
-  return /(donde estoy|en que (pagina|seccion)|que estoy viendo|donde me dejaste)/.test(
-    raw
-  );
-}
-
-function wantsExplainHere(raw: string) {
-  return /(explicame (esto|esta|aca|aquí|aqui)|que es (esto|esta seccion)|contame (de )?esto|que hay aca|que hay aquí|que hay aqui)/.test(
-    raw
-  );
-}
-
 function wantsChecklist(raw: string) {
   return wantsRutChecklist(raw);
 }
@@ -136,27 +147,33 @@ function buildEvent(
 
 async function withVoice(spoken: string, extra: Record<string, unknown>) {
   const isTour = extra.via === "tour-tts";
-  const text = isTour ? prepareTourNarration(spoken) : humanizeSpoken(spoken);
+  const isLocal = extra.via === "local" || extra.via === "local-context";
+  const display = displaySpoken(spoken);
+  const ttsText = isTour ? prepareTourNarration(spoken) : humanizeSpoken(spoken);
   let audioBase64: string | undefined;
   let audioMime: string | undefined;
-  try {
-    // Nunca bloquear la respuesta por TTS: si falla o tarda, igual devolvemos texto.
-    const audio = await synthesizeSpeech(text, {
-      quality: isTour ? "narration" : "chat",
-    });
-    if (audio) {
-      audioBase64 = audio.toString("base64");
-      audioMime = "audio/mpeg";
+  // Saludo y tour: el audio va en la misma respuesta. Si no, el cliente
+  // pide /api/agent/tts y el navegador suele bloquear el playback.
+  if (isTour || isLocal) {
+    try {
+      const audio = await synthesizeSpeech(ttsText, {
+        quality: isTour ? "narration" : "chat",
+      });
+      if (audio) {
+        audioBase64 = audio.toString("base64");
+        audioMime = "audio/mpeg";
+      }
+    } catch (err) {
+      console.error("TTS error", err);
     }
-  } catch (err) {
-    console.error("TTS error", err);
   }
   return NextResponse.json({
     ok: true,
-    spoken: text,
-    reply: text,
+    spoken: display,
+    reply: display,
     audioBase64,
     audioMime,
+    needsTts: !audioBase64,
     voice: process.env.ELEVENLABS_VOICE_ID || "h60rOzgfLmYsntfqgGu2",
     ...extra,
   });
@@ -199,7 +216,7 @@ function withNavigationDefaults(
     !["autoridades", "mision", "vision", "funcion", "normativa"].includes(
       String(intent.target)
     );
-  if (isMove && isCard) {
+  if (isMove && isCard && payload.openLink !== false) {
     // Mark on the demo AND leave to the official resource (popup is often blocked).
     payload.openLink = true;
     payload.redirect = true;
@@ -208,6 +225,37 @@ function withNavigationDefaults(
     payload.openLink = false;
   }
   if (intent.action === "open_external") {
+    try {
+      const url = new URL(String(intent.target || payload.url || ""));
+      const allowed =
+        url.protocol === "https:" &&
+        (url.hostname === "mendoza.gov.ar" ||
+          url.hostname.endsWith(".mendoza.gov.ar") ||
+          url.hostname === "wa.me" ||
+          url.hostname === "whatsapp.com" ||
+          url.hostname.endsWith(".whatsapp.com"));
+      if (!allowed) {
+        return {
+          action: "describe",
+          target: "tramites",
+          reply:
+            "Ese enlace no está dentro de los sitios oficiales permitidos. Puedo ayudarte desde la demo o abrir un portal oficial de Mendoza.",
+          payload: { openLink: false },
+          understood: true,
+          useGuide: false,
+        };
+      }
+    } catch {
+      return {
+        action: "describe",
+        target: "tramites",
+        reply:
+          "No pude validar ese enlace. Puedo ayudarte desde la demo o abrir un portal oficial de Mendoza.",
+        payload: { openLink: false },
+        understood: true,
+        useGuide: false,
+      };
+    }
     payload.redirect = true;
   }
 
@@ -215,7 +263,79 @@ function withNavigationDefaults(
     payload.openExternal = false;
   }
 
-  return { ...intent, payload, useGuide: false };
+  if (intent.action === "open_whatsapp") {
+    const whatsappUrl = buildWhatsAppRutUrl();
+    if (!whatsappUrl) {
+      return {
+        action: "describe",
+        target: "rut",
+        reply:
+          "WhatsApp todavía no está configurado en el servidor. Puedo explicarte el trámite o abrir el SIA oficial.",
+        payload: { openLink: false },
+        understood: true,
+        useGuide: false,
+      };
+    }
+    return {
+      ...intent,
+      target: whatsappUrl,
+      payload: { ...payload, whatsappUrl, alsoNavigate: true },
+    };
+  }
+
+  return { ...intent, payload };
+}
+
+function extractPassiveContext(raw: string) {
+  const facts: Record<string, string> = {};
+  const name = raw.match(
+    /\b(?:me llamo|soy)\s+([\p{L}][\p{L}\s'-]{1,50}?)(?=\s+(?:y|tengo|cultivo|trabajo)\b|[,.]|$)/iu
+  )?.[1];
+  const farm = raw.match(
+    /\b(?:finca|establecimiento)\s+(?:se llama\s+)?([\p{L}\d][\p{L}\d\s'-]{1,60}?)(?=\s+en\b|[,.]|$)/iu
+  )?.[1];
+  const crop = raw.match(
+    /\b(ciruela|ciruelo|durazno|duraznero|vid|uva|ajo|tomate|olivo|cereza)\b/iu
+  )?.[1];
+  const department = raw.match(
+    /\b(Tunuy[aá]n|San Rafael|General Alvear|Lavalle|Maip[uú]|Luj[aá]n(?: de Cuyo)?|San Mart[ií]n|Rivadavia|Jun[ií]n|San Carlos|Tupungato|Malarg[uü]e|Santa Rosa|La Paz|Las Heras|Guaymall[eé]n|Godoy Cruz)\b/iu
+  )?.[1];
+  if (name) facts.name = name.trim();
+  if (farm) facts.farm = farm.trim();
+  if (crop) facts.crop = crop.trim();
+  if (department) facts.department = department.trim();
+  return facts;
+}
+
+/** Respuesta hablada: guía cálida + aviso de sitio oficial cuando corresponde. */
+function resolveSpokenReply(
+  intent: ReturnType<typeof interpretUtterance>
+): string {
+  let spoken = intent.reply;
+  if (intent.useGuide === false && spoken.trim()) return spoken;
+  const target = intent.target;
+  if (
+    !target ||
+    intent.action === "describe" ||
+    !["navigate", "highlight"].includes(intent.action)
+  ) {
+    return spoken;
+  }
+
+  const guide = buildSectionGuide(target);
+  if (!guide) return spoken;
+
+  const openOfficial = Boolean(intent.payload?.openLink);
+  const dry =
+    spoken.length < 28 ||
+    /^(ok|de acuerdo|listo|perfecto|entendido)\b/i.test(spoken.trim());
+
+  if (dry) spoken = guide.spoken;
+  if (openOfficial && !/oficial|otra pestaña|sigo acá/i.test(spoken)) {
+    spoken = `${spoken.replace(/[.…]\s*$/, "")}. Te abrí el oficial en otra pestaña; yo sigo acá.`;
+  }
+
+  return spoken;
 }
 
 export async function POST(req: NextRequest) {
@@ -225,11 +345,17 @@ export async function POST(req: NextRequest) {
     console.error("chat route failed", err);
     const message =
       err instanceof Error ? err.message.slice(0, 200) : "chat failed";
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    const status = err instanceof ApiSecurityError ? err.status : 500;
+    return NextResponse.json({ ok: false, error: message }, { status });
   }
 }
 
 async function handleChat(req: NextRequest) {
+  const authenticatedSession = secureApiRequest(req, {
+    requireSession: true,
+    maxBytes: 32_000,
+    rateLimit: 40,
+  });
   let body: {
     sessionId?: string;
     text?: string;
@@ -247,8 +373,17 @@ async function handleChat(req: NextRequest) {
   if (!sessionId) {
     return NextResponse.json({ error: "sessionId required" }, { status: 400 });
   }
+  if (!/^[a-zA-Z0-9_-]{8,80}$/.test(sessionId)) {
+    return NextResponse.json({ error: "invalid sessionId" }, { status: 400 });
+  }
+  if (authenticatedSession && sessionId !== authenticatedSession) {
+    throw new ApiSecurityError(401, "La sesión no coincide");
+  }
   if (!originalText) {
     return NextResponse.json({ error: "text required" }, { status: 400 });
+  }
+  if (originalText.length > 4_000 || (body.narration?.length || 0) > 2_000) {
+    return NextResponse.json({ error: "text too large" }, { status: 413 });
   }
 
   if (originalText.startsWith("__tour_narrate__:")) {
@@ -263,13 +398,57 @@ async function handleChat(req: NextRequest) {
   const text = corrected.text;
   const mem = getMemory(sessionId);
   appendTurn(sessionId, "user", text);
+  const passiveFacts = extractPassiveContext(originalText);
+  if (Object.keys(passiveFacts).length) {
+    mergeSessionFacts(sessionId, passiveFacts);
+    if (
+      classifyConversationMode(originalText) === "command" &&
+      !wantsRutWhatsAppHandoff(text) &&
+      !wantsRutDemoWizard(text)
+    ) {
+      const details = [
+        passiveFacts.name,
+        passiveFacts.farm && `finca ${passiveFacts.farm}`,
+        passiveFacts.crop && `cultivo ${passiveFacts.crop}`,
+        passiveFacts.department && `departamento ${passiveFacts.department}`,
+      ].filter(Boolean);
+      const spoken = `Perfecto, guardé este contexto: ${details.join(
+        ", "
+      )}. ¿Qué querés consultar?`;
+      appendTurn(sessionId, "assistant", spoken);
+      return withVoice(spoken, { via: "local-context" });
+    }
+  }
   const fresh = getMemory(sessionId);
+  const engineeringMode = isEngineeringPath(body.context?.pathname);
+  const explicitRutOrWa =
+    wantsRutWhatsAppHandoff(text) ||
+    wantsRutDemoWizard(text) ||
+    wantsRutExplainOnly(text);
+
+  if (wantsSimpleGreeting(text) || wantsSimpleGreeting(originalText)) {
+    const spoken = greetingReply(originalText || text, fresh.turns.length, {
+      mode: engineeringMode ? "engineering" : "producer",
+    });
+    appendTurn(sessionId, "assistant", spoken);
+    return withVoice(spoken, { via: "local", understood: true });
+  }
+
+  if (
+    wantsEngineeringTour(text) ||
+    (wantsGuidedTour(text) && engineeringMode)
+  ) {
+    const spoken =
+      "Dale, te recorro ingeniería: el tablero, el QR de Collect, el flujo de campo y los cinco formularios. Si querés frenarlo, decime parar demo.";
+    appendTurn(sessionId, "assistant", spoken);
+    return withVoice(spoken, { via: "local", startTour: "engineering" });
+  }
 
   if (wantsGuidedTour(text)) {
     const spoken =
-      "De acuerdo. Inicio el recorrido del productor: un cultivo, herramientas, autoridades, precios, el QR de ODK y el RUT. Si desea detenerlo, diga parar demo.";
+      "Dale, arranco el recorrido del productor: un cultivo, herramientas, autoridades, precios, el QR de ODK y el RUT. Si querés frenarlo, decime parar demo.";
     appendTurn(sessionId, "assistant", spoken);
-    return withVoice(spoken, { via: "local", startTour: true });
+    return withVoice(spoken, { via: "local", startTour: "producer" });
   }
 
   const brainInput = {
@@ -283,12 +462,29 @@ async function handleChat(req: NextRequest) {
     facts: fresh.facts,
   };
 
-  let intent =
-    (await interpretFast({
-      sessionId,
-      ...brainInput,
-      local: () => interpretWithGemini(brainInput),
-    })) ?? interpretUtterance(text);
+  const isPageQuestion =
+    wantsPageLocation(text) || wantsExplainCurrentPage(text);
+  let intent = isPageQuestion
+    ? {
+        action: "describe" as const,
+        understood: true,
+        useGuide: false,
+        reply: "Reviso la sección actual.",
+      }
+    : resolveLocalIntent(text, originalText, fresh.turns);
+
+  if (!intent) {
+    intent =
+      (await interpretFast({
+        sessionId,
+        ...brainInput,
+        local: () => interpretWithGemini(brainInput),
+      })) ?? interpretUtterance(text);
+
+    if (shouldPreferLocalRules(text, originalText, intent)) {
+      intent = interpretUtterance(text);
+    }
+  }
 
   // Meta mic / coherencia: nunca dejar que un falso "continuar" abra otra sección.
   if (wantsListeningCheck(text)) {
@@ -297,8 +493,58 @@ async function handleChat(req: NextRequest) {
       action: "describe",
       understood: true,
       useGuide: false,
-      reply: `Sí, la escucho a usted. Recibí: “${heard}”. ¿En qué la ayudo ahora: RUT, un cultivo, mapas o clima?`,
+      reply: `Sí, te escucho. Recibí: “${heard}”. Decime qué necesitás y lo vemos.`,
     };
+  }
+
+  if (
+    engineeringMode &&
+    !explicitRutOrWa &&
+    (intent.action === "open_whatsapp" || intent.action === "open_rut")
+  ) {
+    intent = {
+      action: "describe",
+      target: "ingenieria",
+      understood: true,
+      useGuide: false,
+      reply:
+        "Acá estamos en ingeniería, no en el trámite del productor. Pedime el QR, un formulario o el recorrido y te lo marco.",
+    };
+  }
+
+  // Solo explicación del RUT (sin registro ni wizard de carga).
+  if (wantsRutExplainOnly(text)) {
+    const spoken =
+      "El RUT es el Registro Único de Tierras de Mendoza. Para registrarte lo derivamos a WhatsApp: un agente valida datos, pide fotos y documentación (texto o audio). ¿Querés que te abra WhatsApp ahora?";
+    appendTurn(sessionId, "assistant", spoken);
+    const event = buildEvent(sessionId, "navigate", "rut", {
+      openLink: false,
+      click: true,
+    });
+    return withVoice(spoken, { via: "local", event, action: "navigate" });
+  }
+
+  // RUT registro → WhatsApp (agente OpenWA). El wizard web queda solo si piden "wizard demo".
+  if (
+    !wantsListeningCheck(text) &&
+    !wantsRutDemoWizard(text) &&
+    (wantsRutWhatsAppHandoff(text) ||
+      intent.action === "open_whatsapp" ||
+      intent.action === "open_rut")
+  ) {
+    const wa = buildWhatsAppRutUrl();
+    const spoken = whatsAppRutSpoken(Boolean(wa));
+    appendTurn(sessionId, "assistant", spoken);
+    const event = buildEvent(sessionId, "open_whatsapp", wa || undefined, {
+      alsoNavigate: true,
+      sectionId: "rut",
+      whatsappUrl: wa || undefined,
+    });
+    return withVoice(spoken, {
+      via: "local",
+      event,
+      action: "open_whatsapp",
+    });
   }
 
   const remember = intent.payload?.remember;
@@ -309,11 +555,12 @@ async function handleChat(req: NextRequest) {
   intent = withNavigationDefaults(intent);
 
   // Page awareness: "dónde estoy" / "explicame esto"
-  if (wantsWhereAmI(text) || wantsExplainHere(text)) {
+  if (isPageQuestion) {
     const sectionId =
       body.context?.sectionId ||
       mem.lastSectionId ||
-      (body.context?.pathname?.startsWith("/rut") ? "rut" : undefined);
+      (body.context?.pathname?.startsWith("/rut") ? "rut" : undefined) ||
+      (engineeringMode ? "ingenieria" : undefined);
     const guide = sectionId ? buildSectionGuide(sectionId) : null;
     const title =
       body.context?.sectionTitle || guide?.title || sectionId || "el inicio";
@@ -330,13 +577,30 @@ async function handleChat(req: NextRequest) {
       reply: sectionId
         ? `Estás en ${title}.${rutBit} ${
             blurb || guide?.spoken || "Es una sección del portal de Agricultura."
-          } Si querés, te llevo a otra cosa o seguimos el RUT.`
-        : "Estás en el inicio de la demo. Pedime un cultivo, mapas, el QR de ODK o el RUT y te llevo.",
+          } ¿Querés profundizar en esta sección o ir a otra?`
+        : "Estás en el inicio de la demo. Pedime un cultivo, mapas o el RUT y te llevo. Si sos del equipo técnico, pedime la vista de ingeniería.",
+    });
+  }
+
+  const engineeringQ = resolveEngineeringQuestion(text, {
+    inEngineeringView: engineeringMode,
+  });
+  if (engineeringQ && !explicitRutOrWa) {
+    intent = withNavigationDefaults({
+      action: engineeringQ.action,
+      target: engineeringQ.target,
+      understood: true,
+      useGuide: false,
+      payload: {
+        openLink: false,
+        click: engineeringQ.action === "navigate",
+      },
+      reply: engineeringQ.reply,
     });
   }
 
   // ODK / QR: always land on the dedicated card with a clear human explanation.
-  if (wantsOdkHelp(text)) {
+  if (!engineeringQ && wantsOdkHelp(text)) {
     const guide = buildSectionGuide("odk-collect");
     intent = withNavigationDefaults({
       action: "navigate",
@@ -346,11 +610,20 @@ async function handleChat(req: NextRequest) {
       payload: { openLink: false, click: true },
       reply:
         guide?.spoken ??
-        "El QR es para la app ODK Collect en el celular: Agregar proyecto y escanear. No es un link web: lleva la URL del servidor. Te marco la sección con el facsímil educativo.",
+        "El QR de ODK es para ingeniería, no para el trámite del productor. Te abro esa vista: Collect, formularios reales y el tablero técnico.",
     });
   }
 
-  let localFields = normalizeRutFields(extractFormFields(originalText));
+  const rutWebActive =
+    wantsRutDemoWizard(text) ||
+    mem.rutMode === "collecting" ||
+    mem.rutMode === "confirm" ||
+    Boolean(body.context?.pathname?.startsWith("/rut"));
+  // Mencionar nombre, finca o departamento fuera del wizard es contexto,
+  // no una solicitud implícita de registro.
+  let localFields = rutWebActive
+    ? normalizeRutFields(extractFormFields(originalText))
+    : {};
   if (
     (mem.rutMode === "collecting" || mem.rutMode === "confirm") &&
     !localFields.razonSocial
@@ -364,7 +637,7 @@ async function handleChat(req: NextRequest) {
         .trim();
     }
   }
-  if (intent.extractedFields) {
+  if (rutWebActive && intent.extractedFields) {
     localFields = normalizeRutFields({
       ...normalizeRutFields(intent.extractedFields),
       ...localFields,
@@ -460,12 +733,13 @@ async function handleChat(req: NextRequest) {
     mem.rutMode !== "confirm"
   ) {
     const hit = findBestSections(text, 1)[0];
+    const intentTarget = intent.target;
     const sectionId =
-      (intent.target &&
-      catalog.sections.some((s) => s.id === intent.target) &&
+      (intentTarget &&
+      catalog.sections.some((s) => s.id === intentTarget) &&
       intent.action !== "open_external" &&
       intent.action !== "scroll"
-        ? intent.target
+        ? intentTarget
         : undefined) ||
       hit?.id ||
       (intent.payload?.sectionId
@@ -502,8 +776,8 @@ async function handleChat(req: NextRequest) {
       reply: /(no se abrio|no se abrió|no abrio|no abrió|no aparecio|no apareció)/.test(
         text
       )
-        ? "Disculpe: a veces el navegador bloquea la ventana. Toque el botón azul «Abrir sitio oficial» abajo a la izquierda; con ese toque sí abre. Yo continúo aquí."
-        : `De acuerdo, le abro el recurso oficial${sectionId ? ` de ${sectionId.replace(/-/g, " ")}` : ""} en otra pestaña. Si no aparece, toque «Abrir sitio oficial». Yo continúo aquí.`,
+        ? "Perdón: a veces el navegador bloquea la ventana. Tocá el botón azul «Abrir sitio oficial» abajo a la izquierda; con ese toque sí abre. Yo sigo acá."
+        : `Dale, te abro el recurso oficial${sectionId ? ` de ${sectionId.replace(/-/g, " ")}` : ""} en otra pestaña. Si no aparece, tocá «Abrir sitio oficial». Yo sigo acá.`,
     };
   }
 
@@ -559,11 +833,14 @@ async function handleChat(req: NextRequest) {
   if (intent.endSession) {
     clearSession(sessionId);
     const event = buildEvent(sessionId, "go_home");
-    publish(event);
     return withVoice(intent.reply, { via: "gemini", event, endSession: true });
   }
 
-  if (intent.extractedFields && Object.keys(intent.extractedFields).length) {
+  if (
+    rutWebActive &&
+    intent.extractedFields &&
+    Object.keys(intent.extractedFields).length
+  ) {
     mergePendingFields(sessionId, normalizeRutFields(intent.extractedFields));
     setRutProgress(sessionId, { rutMode: "collecting" });
   }
@@ -760,7 +1037,6 @@ async function handleChat(req: NextRequest) {
 
     if (missingBeforeFill && Object.keys(pending).length < 2 && !userAskedFill) {
       const event = buildEvent(sessionId, "open_rut");
-      publish(event);
       const spoken = ackAndAskNext(
         pending,
         RUT_ASK_HINT[missingBeforeFill],
@@ -819,7 +1095,6 @@ async function handleChat(req: NextRequest) {
       fields: pending,
       mode: "manual",
     });
-    publish(event);
     setAwaitingFill(sessionId, false);
     appendTurn(sessionId, "assistant", intent.reply);
     return withVoice(intent.reply, { via: "gemini", event });
@@ -832,7 +1107,6 @@ async function handleChat(req: NextRequest) {
       fields: pending,
       mode: "ask",
     });
-    publish(event);
     const question =
       intent.confirm?.question ??
       intent.reply ??
@@ -878,15 +1152,13 @@ async function handleChat(req: NextRequest) {
     }
   }
 
-  const spoken = intent.reply;
+  const spoken = humanizeSpoken(resolveSpokenReply(intent));
   const event = buildEvent(
     sessionId,
     intent.action,
     intent.target,
     intent.payload
   );
-  publish(event);
-
   if (
     intent.target &&
     (intent.action === "navigate" ||

@@ -8,6 +8,9 @@ import {
   openResourceUrl,
   resourceViewerIsOpen,
 } from "@/lib/open-resource";
+import { navigateOfficialTab } from "@/lib/official-tab";
+import { createAgentEventDedupe } from "@/lib/agent-event-dedupe";
+import { sectionHashUrl } from "@/lib/page-context";
 import type { AgentEvent } from "@/lib/types";
 
 declare global {
@@ -19,6 +22,7 @@ declare global {
       end?: () => void;
       onStatusChange?: (cb: (status: string) => void) => void;
     };
+    __demoAgentEventDedupe?: ReturnType<typeof createAgentEventDedupe>;
   }
 }
 
@@ -45,6 +49,12 @@ function openUrl(
     title: meta?.title,
     forceTab: meta?.forceTab ?? true,
   });
+}
+
+function acceptAgentEvent(eventId?: string) {
+  // Guardado en window para sobrevivir remounts, HMR y copias de chunk.
+  window.__demoAgentEventDedupe ??= createAgentEventDedupe();
+  return window.__demoAgentEventDedupe(eventId);
 }
 
 export function VoiceAssistantBridge() {
@@ -87,59 +97,6 @@ export function VoiceAssistantBridge() {
     }
 
     const historyStack: string[] = [];
-
-    const clickPrimary = (root: HTMLElement): boolean => {
-      window.dispatchEvent(
-        new CustomEvent("demo:section-activate", {
-          detail: { sectionId: root.dataset.sectionId || root.id },
-        })
-      );
-
-      const primary =
-        root.matches("[data-demo-primary]")
-          ? root
-          : root.querySelector<HTMLElement>("[data-demo-primary]");
-      if (primary) {
-        if (primary.tagName === "A") {
-          const href = (primary as HTMLAnchorElement).href;
-          if (/^https?:/.test(href) && !href.includes(window.location.host)) {
-            openUrl(href);
-            return true;
-          }
-        }
-        primary.click();
-        return true;
-      }
-
-      if (root.tagName === "BUTTON" || root.getAttribute("role") === "tab") {
-        root.click();
-        return true;
-      }
-
-      if (root.tagName === "A") {
-        const href = (root as HTMLAnchorElement).href;
-        if (href && !href.endsWith("#") && !href.includes("/#")) {
-          openUrl(href);
-          return true;
-        }
-        root.click();
-        return true;
-      }
-
-      const anchor = root.querySelector<HTMLAnchorElement>("a[href]");
-      if (anchor?.href) {
-        if (anchor.target === "_blank" || /^https?:/.test(anchor.href)) {
-          openUrl(anchor.href);
-          return true;
-        }
-        anchor.click();
-        return true;
-      }
-
-      root.click();
-      return false;
-    };
-
     const focusSection = (
       target: string,
       openLink = true,
@@ -149,7 +106,11 @@ export function VoiceAssistantBridge() {
       if (!el) return false;
 
       try {
-        history.replaceState(null, "", `/#${target}`);
+        history.replaceState(
+          null,
+          "",
+          sectionHashUrl(pathnameRef.current, target)
+        );
       } catch {
         // ignore
       }
@@ -201,8 +162,35 @@ export function VoiceAssistantBridge() {
       else if (pathnameRef.current === "/rut") historyStack.push("__rut__");
 
       const tryFocus = () => focusSection(target, openLink, fallbackUrl);
+      const engineering = [
+        "ingenieria",
+        "odk-collect",
+        "odk-forms",
+        "odk-flujo",
+        "odk-tablero",
+      ].includes(target);
 
-      if (pathnameRef.current !== "/") {
+      if (engineering && pathnameRef.current !== "/ingenieria") {
+        router.push(`/ingenieria#${target}`);
+        let attempts = 0;
+        const timer = window.setInterval(() => {
+          attempts += 1;
+          if (tryFocus() || attempts >= 16) window.clearInterval(timer);
+        }, 140);
+        return;
+      }
+
+      if (!engineering && pathnameRef.current === "/ingenieria") {
+        router.push(`/#${target}`);
+        let attempts = 0;
+        const timer = window.setInterval(() => {
+          attempts += 1;
+          if (tryFocus() || attempts >= 16) window.clearInterval(timer);
+        }, 140);
+        return;
+      }
+
+      if (pathnameRef.current !== "/" && pathnameRef.current !== "/ingenieria") {
         router.push(`/#${target}`);
         let attempts = 0;
         const timer = window.setInterval(() => {
@@ -219,6 +207,7 @@ export function VoiceAssistantBridge() {
     };
 
     const applyEvent = (event: AgentEvent) => {
+      if (!acceptAgentEvent(event.id)) return;
       switch (event.action) {
         case "navigate":
         case "highlight":
@@ -292,6 +281,39 @@ export function VoiceAssistantBridge() {
         case "go_forward": {
           if (resourceViewerIsOpen()) {
             window.dispatchEvent(new CustomEvent("demo:resource-forward"));
+          }
+          break;
+        }
+        case "open_whatsapp": {
+          closeResourceViewer();
+          if (event.payload?.alsoNavigate) {
+            goToSection("rut");
+          }
+          const wa =
+            (typeof event.target === "string" && event.target) ||
+            (typeof event.payload?.whatsappUrl === "string"
+              ? event.payload.whatsappUrl
+              : "");
+          if (wa) {
+            const opened = navigateOfficialTab(wa);
+            window.dispatchEvent(
+              new CustomEvent("demo:official-toast", {
+                detail: {
+                  url: wa,
+                  title: "RUT por WhatsApp",
+                  sectionId: "rut",
+                  blocked: !opened,
+                },
+              })
+            );
+          } else {
+            window.dispatchEvent(
+              new CustomEvent("demo:assistant-hint", {
+                detail: {
+                  text: "Para abrir WhatsApp falta WHATSAPP_RUT_NUMBER en .env.local (tu número OpenWA con código de país, ej. 549261…). Reiniciá npm run dev.",
+                },
+              })
+            );
           }
           break;
         }
@@ -430,12 +452,6 @@ export function VoiceAssistantBridge() {
 
   if (!sessionId) return null;
 
-  return (
-    <div className="fixed bottom-4 left-4 z-50 max-w-[15rem] rounded-2xl border border-white/50 bg-white/95 px-3 py-2.5 text-xs text-slate-600 shadow-xl backdrop-blur-xl">
-      <p className="font-semibold text-mza-blue">Demo en vivo · Asistente IA</p>
-      <p className="mt-0.5 text-[10px] leading-relaxed text-slate-500">
-        Bot a la derecha · oficiales en otra pestaña · yo sigo acá
-      </p>
-    </div>
-  );
+  // Puente headless: EventSource + eventos. Sin UI (evita hydration mismatch).
+  return null;
 }

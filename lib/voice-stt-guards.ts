@@ -42,14 +42,23 @@ function contentWords(text: string) {
   return text.split(" ").filter((w) => w.length > 2 && !STOPWORDS.has(w));
 }
 
+const LISTED_OPTION =
+  /^(el |la |un |una )?(rut|root|ruth|rod|rued|qr|odk|cultivo|mapas?|clima)$/;
+
 /**
- * Eco del TTS: solo si el usuario repite casi la misma frase del asistente.
- * No bloquear pedidos cortos que compartan vocabulario ("RUT", "mostrame").
+ * Eco del TTS: el micrófono atrapa una palabra que el asistente acaba de listar
+ * ("RUT", "QR") o casi la misma frase. Un pedido con verbo no se bloquea.
  */
 export function looksLikeEcho(heard: string, spoken: string) {
   const a = normalizeHeard(heard);
   const b = normalizeHeard(spoken);
-  if (!a || a.length < 6 || !b) return false;
+  if (!a || !b) return false;
+
+  if (LISTED_OPTION.test(a) && b.includes(a.split(" ").pop() || a)) {
+    return true;
+  }
+
+  if (a.length < 6) return false;
   if (a === b) return true;
 
   // Frases cortas del usuario casi nunca son eco completo.

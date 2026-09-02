@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DemoModeToggle } from "@/components/DemoModeToggle";
 
 export function Header() {
   return (
@@ -31,6 +32,7 @@ export function Header() {
           <a href="#capacitaciones" className="hover:text-mza-blue">
             Capacitaciones
           </a>
+          <DemoModeToggle />
           <Link
             href="/rut"
             className="rounded-full bg-mza-blue px-4 py-2 text-white hover:bg-mza-blue-dark"
@@ -38,6 +40,9 @@ export function Header() {
             RUT DEMO
           </Link>
         </nav>
+        <div className="md:hidden">
+          <DemoModeToggle />
+        </div>
       </div>
     </header>
   );

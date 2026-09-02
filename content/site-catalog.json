@@ -471,10 +471,38 @@
       "externalUrl": "https://informacionoficial.mendoza.gob.ar/produccion/precios/"
     },
     {
+      "id": "ingenieria",
+      "title": "Ingeniería · ODK Central",
+      "group": "ingenieria",
+      "summary": "Vista técnica del relevamiento: QR de app user, formularios publicados y tablero simulado.",
+      "keywords": ["ingenieria", "ingeniería", "odk central", "agriencuestas"]
+    },
+    {
+      "id": "odk-forms",
+      "title": "Formularios ODK",
+      "group": "ingenieria",
+      "summary": "XForms del proyecto Agricultura Mendoza: fenología, olivo y certificación de equipos.",
+      "keywords": ["formularios odk", "xform", "fenologia 2026", "olivo"]
+    },
+    {
+      "id": "odk-flujo",
+      "title": "Flujo ODK Collect",
+      "group": "ingenieria",
+      "summary": "Pasos técnicos: escanear QR, bajar blancos, finalizar y enviar a Central.",
+      "keywords": ["flujo odk", "obtener formulario", "autosend"]
+    },
+    {
+      "id": "odk-tablero",
+      "title": "Tablero ODK",
+      "group": "ingenieria",
+      "summary": "Tablero simulado estilo Power BI para la campaña de formularios.",
+      "keywords": ["tablero odk", "power bi", "kpi campo"]
+    },
+    {
       "id": "odk-collect",
-      "title": "ODK Collect · código QR",
-      "group": "tramites",
-      "summary": "App Android para formularios en campo. El QR configura el proyecto: Agregar proyecto y escanear QR. No es un link web. En la demo hay un facsimil educativo embebido.",
+      "title": "ODK Collect · ingeniería",
+      "group": "ingenieria",
+      "summary": "Vista técnica: QR de app user, formularios Central y tablero simulado. No es el trámite RUT.",
       "keywords": [
         "odk",
         "qr",
@@ -482,9 +510,10 @@
         "collect",
         "agregar proyecto",
         "formulario celular",
-        "relevamiento campo"
-      ],
-      "externalUrl": "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/#odk-collect"
+        "relevamiento campo",
+        "ingenieria",
+        "central"
+      ]
     },
     {
       "id": "capacitaciones",

@@ -13,6 +13,7 @@ const ACTIONS: AgentAction[] = [
   "navigate",
   "highlight",
   "open_external",
+  "open_whatsapp",
   "open_rut",
   "rut_set_step",
   "rut_focus_field",
@@ -254,16 +255,17 @@ export async function interpretWithGemini(input: {
     `MEMORIA DE SESIÓN (hechos): ${facts}.`,
     `Texto original del dictado: "${input.originalText}".`,
     `Texto corregido (si cambió, priorizalo): "${input.text}".`,
-    "PRIORIDAD: respondé exactamente a lo que la persona preguntó. Si pregunta si la escucha, confirmalo (action=describe) sin navegar.",
-    "Sé asertivo y útil: solución concreta + siguiente paso. Variá el tono; no repitas la misma plantilla.",
-    "Si no hay pedido de sección/trámite, no navegues.",
+    "PRIORIDAD: respondé exactamente a lo que preguntó. Saludo suelto (hola/hola cómo estás/buenas) → describe, sin target, sin navegar, sin RUT. Mic check → describe, sin navegar.",
+    "Si pide cultivo/herramienta/recurso: navigate + openLink=true + URL oficial, y explicá qué hay en esa página. Tono cercano argentino. No repitas la misma coletilla.",
+    "STT: root/ruth/rod = RUT solo si piden el registro, nunca si saludan. abajo = ajo. No respondas solo saludo si el mensaje incluye un pedido concreto.",
+    "No seas seco ni rígido. Una respuesta útil y humana.",
   ].join("\n");
 
   for (const model of MODELS) {
     try {
       let raw = await withTimeout(
         callGemini(apiKey, model, userPrompt, input.history),
-        6_500,
+        4_000,
         null
       );
       if (!raw) continue;

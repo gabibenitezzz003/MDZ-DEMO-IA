@@ -215,7 +215,7 @@ export function wantsOdkHelp(raw: string) {
     .toLowerCase()
     .normalize("NFD")
     .replace(/\p{M}/gu, "");
-  return /(odk|codigo qr|c[oó]digo qr|\bqr\b|collect|agregar proyecto|formulario.*(celular|campo|movil)|relevamiento en campo)/.test(
+  return /(odk|codigo qr|c[oó]digo qr|\bqr\b|collect|agregar proyecto|formulario.*(celular|campo|movil)|relevamiento en campo|vista ingenieria|modo ingenieria|\bingenieria\b)/.test(
     text
   );
 }

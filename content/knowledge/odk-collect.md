@@ -3,18 +3,18 @@
 ## ¿Para qué es?
 
 **ODK Collect** es una app de Android para cargar formularios en el campo (relevamientos, encuestas, datos productivos).  
-El **código QR** del portal **no es un link web**: es la configuración del proyecto. Al escanearlo, el celular queda apuntando al servidor correcto de formularios de la Dirección (URL, proyecto y ajustes), sin tipear nada a mano.
+El **código QR** del portal **no es un link web**: es la configuración del proyecto. Al escanearlo con Collect, el celular queda apuntando al servidor (URL, proyecto y ajustes), sin tipear nada a mano.
 
-## Qué contiene el QR (análisis)
+## Qué contiene el QR
 
-Un QR de ODK Collect suele llevar un JSON (a veces comprimido) con, entre otros:
+El QR de ODK Collect lleva un JSON comprimido (gzip + Base64) con, entre otros:
 
 | Campo | Para qué sirve |
 | --- | --- |
-| `general.server_url` | URL del servidor ODK / Aggregate / Central |
+| `general.server_url` | URL del servidor ODK Central / Aggregate |
 | `general.username` | Usuario de la app (si aplica) |
-| `general.protocol` | Protocolo (`odk_aggregate`, etc.) |
-| nombre / proyecto | Cómo aparece el proyecto en Collect |
+| `general.protocol` | Protocolo (`odk_central`, `odk_aggregate`) |
+| `project.name` | Cómo aparece el proyecto en Collect |
 
 **No es** una URL para abrir en el navegador. Si lo escaneás con la cámara del teléfono (fuera de Collect), no “entra” al trámite web.
 
@@ -24,15 +24,14 @@ Un QR de ODK Collect suele llevar un JSON (a veces comprimido) con, entre otros:
 2. Abrí la app.
 3. Pulsá **Agregar proyecto** (o el ícono de proyecto → Agregar proyecto).
 4. Elegí **Escanear código QR**.
-5. Escaneá el QR.
+5. Escaneá el QR de esta sección.
 6. Después podés **Descargar formulario** y completar en campo.
 
 ## Relación con esta demo
 
-- En el sitio oficial hoy el QR a veces **no está publicado o falla** (ítem operativo).
-- En la DEMO hay un **facsímil educativo** embebido en la sección `odk-collect` (`/odk/demo-odk-collect.png`) cuyo payload está en `/odk/demo-odk-payload.json`.
-- Ese facsímil **no reemplaza** el QR oficial: sirve para mostrar la forma del contenido y el flujo Agregar proyecto → escanear.
-- Si el usuario pregunta “qué es el QR” / “ODK” / “cómo cargo el formulario del celular”, explicá estos pasos, marcá la sección y mencioná que el embebido es DEMO.
+- En la DEMO el QR (`/odk/odk-collect.png`) usa el formato de Collect/Central: JSON → gzip → Base64, protocolo `odk_default`.
+- Por defecto apunta a `https://demo.getodk.org` para que al escanear se cree el proyecto. Se puede cambiar con `ODK_COLLECT_SERVER_URL`.
+- Si el usuario pregunta “qué es el QR” / “ODK” / “cómo cargo el formulario del celular”, explicá estos pasos y marcá la sección `odk-collect`.
 
 ## Frases típicas del productor
 

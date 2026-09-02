@@ -3,6 +3,7 @@ import { publish } from "@/lib/agent-bus";
 import { buildSectionGuide } from "@/lib/section-guide";
 import { isValidSectionId } from "@/lib/section-ids";
 import type { AgentAction, AgentActionRequest, AgentEvent } from "@/lib/types";
+import { ApiSecurityError, secureApiRequest } from "@/lib/api-security";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ const ACTIONS: AgentAction[] = [
   "navigate",
   "highlight",
   "open_external",
+  "open_whatsapp",
   "open_rut",
   "rut_set_step",
   "rut_focus_field",
@@ -26,15 +28,32 @@ const ACTIONS: AgentAction[] = [
 
 const SCROLL_TARGETS = ["up", "down", "top", "bottom"];
 
-function unauthorized() {
-  return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+function allowedExternalUrl(raw: unknown) {
+  try {
+    const url = new URL(String(raw || ""));
+    if (url.protocol !== "https:") return false;
+    return (
+      url.hostname === "wa.me" ||
+      url.hostname === "whatsapp.com" ||
+      url.hostname.endsWith(".whatsapp.com") ||
+      url.hostname === "mendoza.gov.ar" ||
+      url.hostname.endsWith(".mendoza.gov.ar")
+    );
+  } catch {
+    return false;
+  }
 }
 
 export async function POST(req: NextRequest) {
-  const secret = process.env.DEMO_AGENT_SECRET ?? "demo-secret-change-me";
-  const header = req.headers.get("x-demo-secret");
-  if (!header || header !== secret) {
-    return unauthorized();
+  try {
+    secureApiRequest(req, {
+      requireSession: true,
+      maxBytes: 16_000,
+      rateLimit: 60,
+    });
+  } catch (error) {
+    const status = error instanceof ApiSecurityError ? error.status : 500;
+    return NextResponse.json({ error: "Unauthorized" }, { status });
   }
 
   let body: AgentActionRequest;
@@ -43,12 +62,18 @@ export async function POST(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
+  if (JSON.stringify(body).length > 16_000) {
+    return NextResponse.json({ error: "Payload too large" }, { status: 413 });
+  }
 
   const sessionId = body.sessionId?.trim();
   const action = body.action;
 
   if (!sessionId) {
     return NextResponse.json({ error: "sessionId required" }, { status: 400 });
+  }
+  if (!/^[a-zA-Z0-9_-]{8,80}$/.test(sessionId)) {
+    return NextResponse.json({ error: "Invalid sessionId" }, { status: 400 });
   }
   if (!ACTIONS.includes(action)) {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });
@@ -87,6 +112,17 @@ export async function POST(req: NextRequest) {
       );
     }
     body.target = String(step);
+  }
+
+  if (action === "open_external" || action === "open_whatsapp") {
+    const url = body.target || body.payload?.url || body.payload?.whatsappUrl;
+    if (!allowedExternalUrl(url)) {
+      return NextResponse.json(
+        { error: "External URL not allowed" },
+        { status: 400 }
+      );
+    }
+    body.target = String(url);
   }
 
   const event: AgentEvent = {
@@ -146,7 +182,6 @@ export async function OPTIONS() {
   return new NextResponse(null, {
     status: 204,
     headers: {
-      "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "POST, OPTIONS",
       "Access-Control-Allow-Headers": "Content-Type, x-demo-secret",
     },

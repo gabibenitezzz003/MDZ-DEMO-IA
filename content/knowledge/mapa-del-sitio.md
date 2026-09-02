@@ -13,7 +13,7 @@ Esta demo replica la navegación del portal. Los IDs entre paréntesis se usan p
 ## Trámites
 - RUT (`rut`): Registro Único de Tierras. Se gestiona en el SIA: https://sia.mendoza.gov.ar/account/login
   En la DEMO hay un wizard guiado en `/rut`.
-- ODK Collect / QR (`odk-collect`): el QR configura la app Android ODK Collect (Agregar proyecto → escanear). No es un link web. Ver `odk-collect.md`. En la demo hay facsímil embebido; en el oficial a veces falla o no está.
+- ODK Collect / QR (`odk-collect`): el QR configura la app Android ODK Collect (Agregar proyecto → escanear). No es un link web. Ver `odk-collect.md`.
 
 ## Publicaciones oficiales (con IA en el portal)
 - Economía regional (`economia-regional`)

@@ -15,6 +15,15 @@ describe("looksLikeEcho", () => {
     ).toBe(false);
   });
 
+  it("drops a lone listed option the assistant just said", () => {
+    expect(
+      looksLikeEcho(
+        "RUT",
+        "Pedime un cultivo, mapas o el RUT y te llevo."
+      )
+    ).toBe(true);
+  });
+
   it("detects near-full echo of the assistant line", () => {
     expect(
       looksLikeEcho(

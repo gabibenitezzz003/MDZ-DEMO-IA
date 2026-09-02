@@ -1,0 +1,912 @@
+{
+  "name": "OpenWA - Agente RUT Mendoza (voz + texto + memoria)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pruebas",
+        "options": {}
+      },
+      "id": "808567c8-3c9c-4f96-811a-f90939824a97",
+      "name": "Webhook OpenWA",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        7328,
+        3168
+      ],
+      "webhookId": "dd482bf0-4892-4b0d-a161-e8b1dbcef50c"
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json.body ?? $json;\nconst data = payload.data ?? {};\nconst event = payload.event ?? payload.body?.event;\n\nif (event === 'test' || event !== 'message.received') return [];\nif (data.isGroup === true || data.isStatusBroadcast === true || !data.chatId) return [];\n\nconst rawType = String(data.type ?? '').toLowerCase();\nconst isAudio = ['audio', 'voice', 'ptt'].includes(rawType);\nconst isText = rawType === 'text' || rawType === 'chat' || (!rawType && typeof data.body === 'string');\nconst isImage = ['image', 'photo'].includes(rawType);\nconst isDocument = ['document', 'file'].includes(rawType);\nif (!isAudio && !isText && !isImage && !isDocument) return [];\n\nconst body = typeof data.body === 'string' ? data.body.trim() : '';\nif (isText && !body) return [];\n\n// Prueba controlada en \"Mensaje a vos mismo\": acepta solo texto escrito por la persona.\n// Audio/medios salientes y respuestas del bot siempre se descartan para evitar bucles.\nif (data.fromMe === true) {\n  const botEcho = /^\\u200B/.test(body) || /^Para registrarte \\(demo RUT\\):/i.test(body);\n  if (!isText || botEcho) return [];\n}\n\nconst messageId =\n  data.id ??\n  payload.idempotencyKey ??\n  payload.deliveryId ??\n  `${data.chatId}:${data.timestamp ?? Date.now()}:${body}`;\n\nreturn [{\n  json: {\n    messageId: String(messageId),\n    chatId: data.chatId,\n    from: data.from ?? data.chatId,\n    inputType: isAudio ? 'audio' : isImage ? 'image' : isDocument ? 'document' : 'text',\n    messageText: body,\n    mediaBase64: data.media?.data ?? '',\n    mediaMimeType: data.media?.mimetype ?? data.mimetype ?? '',\n    mediaFileName: data.media?.filename ?? data.filename ?? '',\n    mediaUrl: data.media?.url ?? '',\n    mediaOmitted: Boolean(data.media?.omitted),\n    mediaSizeBytes: data.media?.sizeBytes ?? null,\n    timestamp: data.timestamp ?? null,\n    sessionId: payload.sessionId ?? null,\n    fromMe: Boolean(data.fromMe)\n  }\n}];"
+      },
+      "id": "10642489-5dea-47d6-a16d-755055e4996b",
+      "name": "Normalizar entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7584,
+        3168
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "incr",
+        "key": "={{ 'wa:dedupe:' + $json.messageId }}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "id": "d1168093-43d2-4ccd-8ed4-ae1f5b0b6101",
+      "name": "Redis - Deduplicar webhook",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        7840,
+        3168
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "180ba2e0-2fb3-40ab-b7f1-126b7242b8dc",
+              "leftValue": "={{ Number(Object.values($json)[0] ?? 0) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a8350974-775f-44f8-83f8-96052076472b",
+      "name": "¿Primera entrega?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8064,
+        3168
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a9e30782-28e5-4143-a087-04c8b01214a5",
+              "name": "messageId",
+              "value": "={{ $('Normalizar entrada').first().json.messageId }}",
+              "type": "string"
+            },
+            {
+              "id": "ee24fa75-6a25-451a-b700-9d3c46ea0924",
+              "name": "chatId",
+              "value": "={{ $('Normalizar entrada').first().json.chatId }}\n",
+              "type": "string"
+            },
+            {
+              "id": "12ef13f3-98cf-426a-944a-065732a80196",
+              "name": "from",
+              "value": "={{ $('Normalizar entrada').first().json.from }}\n",
+              "type": "string"
+            },
+            {
+              "id": "d81d1f03-45af-470c-9918-6e69e294297e",
+              "name": "inputType",
+              "value": "={{ $('Normalizar entrada').first().json.inputType }}",
+              "type": "string"
+            },
+            {
+              "id": "ed5e075b-4fdf-4e53-af16-8d3c8b092947",
+              "name": "messageText",
+              "value": "={{ $('Normalizar entrada').first().json.messageText }}\n",
+              "type": "string"
+            },
+            {
+              "id": "1067e412-53d4-41c0-b7ce-38871fe346aa",
+              "name": "mediaBase64",
+              "value": "={{ $('Normalizar entrada').first().json.mediaBase64 }}",
+              "type": "string"
+            },
+            {
+              "id": "a0ec6c7c-14a5-42b7-97ea-c3a80bbf59d9",
+              "name": "mediaMimeType",
+              "value": "={{ $('Normalizar entrada').first().json.mediaMimeType }}",
+              "type": "string"
+            },
+            {
+              "id": "a3f854d9-db52-4c95-8119-3a2e6c55c4b3",
+              "name": "mediaOmitted",
+              "value": "={{ $('Normalizar entrada').first().json.mediaOmitted }}",
+              "type": "boolean"
+            },
+            {
+              "id": "d6084168-4b78-490d-a570-3f251d384d45",
+              "name": "mediaFileName",
+              "value": "={{ $('Normalizar entrada').first().json.mediaFileName }}",
+              "type": "string"
+            },
+            {
+              "id": "ac24bf2a-7e6b-4473-8ba7-794a72450e78",
+              "name": "mediaUrl",
+              "value": "={{ $('Normalizar entrada').first().json.mediaUrl }}",
+              "type": "string"
+            },
+            {
+              "id": "0750eb97-b7a6-4c20-b1eb-fab29ddc39df",
+              "name": "mediaSizeBytes",
+              "value": "={{ $('Normalizar entrada').first().json.mediaSizeBytes }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "36aeba7e-a197-4eaf-9a00-18779a2e0f17",
+      "name": "Restaurar mensaje",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        8288,
+        3152
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "3f271f30-d575-4931-82be-0f6b7c7c9fee",
+              "leftValue": "={{ $json.inputType }}",
+              "rightValue": "audio",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "88c5ce9a-3ef9-4264-a0fe-5530ef69c453",
+      "name": "¿Es audio?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8512,
+        3152
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "fd485072-0914-477b-9b56-36154c13223e",
+              "leftValue": "={{ $json.mediaBase64 && !$json.mediaOmitted ? 'ok' : 'missing' }}",
+              "rightValue": "ok",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "9a74933f-178d-43c8-9522-887e1adcd768",
+      "name": "¿Audio descargado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        8768,
+        3008
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "toBinary",
+        "sourceProperty": "mediaBase64",
+        "options": {
+          "fileName": "whatsapp-audio",
+          "mimeType": "={{ $json.mediaMimeType || 'audio/ogg' }}"
+        }
+      },
+      "id": "29ef5912-d12d-4f26-af8d-f1d56bb7ae81",
+      "name": "Audio entrante - Base64 a archivo",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        9072,
+        2864
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "speech",
+        "operation": "speechToText",
+        "additionalOptions": {
+          "model": {
+            "__rl": true,
+            "value": "scribe_v1",
+            "mode": "id"
+          },
+          "languageCode": "es",
+          "numberOfSpeakers": 1,
+          "diarize": false
+        },
+        "requestOptions": {}
+      },
+      "id": "aedab440-a4a0-4509-9388-02b592120156",
+      "name": "ElevenLabs - Transcribir audio",
+      "type": "@elevenlabs/n8n-nodes-elevenlabs.elevenLabs",
+      "typeVersion": 1,
+      "position": [
+        9296,
+        2864
+      ],
+      "credentials": {
+        "elevenLabsApi": {
+          "id": "xjtRk8u5lKY2SEEM",
+          "name": "ElevenLabs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "553d989f-5632-42b2-b3ce-87d2b5e0e177",
+              "name": "input",
+              "value": "={{ ($json.text || $json.transcript || '').trim() || '[El usuario envió un audio, pero la transcripción quedó vacía. Pedile amablemente que lo repita.]' }}",
+              "type": "string"
+            },
+            {
+              "id": "3f599106-73f4-4c95-86fe-45b67243c37c",
+              "name": "chatId",
+              "value": "={{ $('Normalizar entrada').first().json.chatId }}",
+              "type": "string"
+            },
+            {
+              "id": "a15d9107-c881-422c-af64-34e87591e7c0",
+              "name": "sourceType",
+              "value": "audio",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "81bfaffd-735c-457d-8298-302d40d0165b",
+      "name": "Preparar entrada desde audio",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        9504,
+        2864
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "037f62fd-ff25-49de-9231-f93b7978ad7a",
+              "name": "input",
+              "value": "={{ $json.messageText }}",
+              "type": "string"
+            },
+            {
+              "id": "05d2bce5-d6b0-4fb8-9fc9-19ddb50cefda",
+              "name": "chatId",
+              "value": "={{ $json.chatId }}",
+              "type": "string"
+            },
+            {
+              "id": "b33156b1-8a45-43aa-89ad-574c5c2b802f",
+              "name": "sourceType",
+              "value": "text",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "22e5bccf-4a69-40fc-b4fe-5f15dbb00a1b",
+      "name": "Preparar entrada desde texto",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        8768,
+        3344
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://openwa-api:2785/api/sessions/e75b92ce-697c-4864-9c6a-5c48be1b9599/messages/send-text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ chatId: $('Normalizar entrada').first().json.chatId, text: 'No pude descargar ese audio para escucharlo. Mandámelo de nuevo y lo intento otra vez.' }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "586a8282-ba9d-4bb6-a782-9f02cd824879",
+      "name": "OpenWA - Avisar audio no disponible",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9072,
+        3104
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "HMl1Be2nj7mdMRAw",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = String($json.chatId || '').trim();\nconst input = String($json.input || $json.messageText || '').trim();\nconst inputType = String($json.inputType || $json.sourceType || 'text').toLowerCase();\nconst normalized = input\n  .toLowerCase()\n  .normalize('NFD')\n  .replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[¿?¡!.,;:]/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim();\nconst correctionText = input\n  .toLowerCase()\n  .normalize('NFD')\n  .replace(/[\\u0300-\\u036f]/g, '')\n  .trim();\n\nconst EMPTY_STATE = {\n  step: 0,\n  status: 'collecting',\n  siaStep: 'TITULAR',\n  data: {},\n  documents: [],\n  validations: [],\n  locationSaved: false,\n  pendingDoc: null,\n};\nlet state;\ntry {\n  const raw = $json.state_raw || $json.stateJson || '';\n  state = raw ? JSON.parse(String(raw)) : JSON.parse(JSON.stringify(EMPTY_STATE));\n} catch {\n  state = JSON.parse(JSON.stringify(EMPTY_STATE));\n}\nstate.data = state.data && typeof state.data === 'object' ? state.data : {};\nstate.documents = Array.isArray(state.documents) ? state.documents : [];\nstate.validations = Array.isArray(state.validations) ? state.validations : [];\nstate.locationSaved = Boolean(state.locationSaved);\nstate.pendingDoc = state.pendingDoc || null;\nstate.siaStep = state.siaStep || 'TITULAR';\n\nconst fieldOrder = [\n  'cuit',\n  'email',\n  'razonSocial',\n  'telefono',\n  'condicionTierra',\n  'establecimiento',\n  'departamento',\n  'localidad',\n];\nconst labels = {\n  cuit: 'CUIT',\n  email: 'correo',\n  razonSocial: 'razón social o nombre',\n  telefono: 'teléfono',\n  condicionTierra: 'condición frente a la tierra',\n  establecimiento: 'finca o establecimiento',\n  departamento: 'departamento',\n  localidad: 'localidad',\n};\nconst BOT_MARK = '\\u200B';\n\nconst LEGAL_BY_CONDITION = {\n  titular: 'escritura pública o boleto de compra-venta sellado en Rentas',\n  usufructuario: 'escritura pública',\n  locatario: 'contrato de locación o arrendamiento sellado en Rentas',\n  mediero: 'contrato de mediería sellado en Rentas',\n  fideicomiso: 'escritura o contrato de fideicomiso sellado en Rentas',\n  comodatario: 'contrato de comodato sellado en Rentas',\n  aparcero: 'contrato de aparcería sellado en Rentas',\n  apoderado: 'poder con constancia de inscripción, sellado en Rentas',\n};\n\nconst DOC_PROVIDERS = {\n  constancia_cuit: ['ARCA', 'constancia_cuit'],\n  legal: ['RENTAS', 'documentacion_legal'],\n  inmobiliario: ['ATM', 'impuesto_inmobiliario'],\n  riego: ['IRRIGACION', 'boleta_riego'],\n  inv: ['INV', 'registro_vinedos'],\n  renspa: ['SENASA', 'renspa'],\n  adicional: ['SIA', 'adicional'],\n};\n\nfunction validCuit(raw) {\n  const digits = String(raw || '').replace(/\\D/g, '');\n  if (!/^\\d{11}$/.test(digits)) return false;\n  const weights = [5, 4, 3, 2, 7, 6, 5, 4, 3, 2];\n  const sum = weights.reduce((acc, weight, index) => acc + Number(digits[index]) * weight, 0);\n  const mod = 11 - (sum % 11);\n  const verifier = mod === 11 ? 0 : mod === 10 ? 9 : mod;\n  return verifier === Number(digits[10]);\n}\n\nfunction hasLetters(value) {\n  return /[a-zA-ZáéíóúñÁÉÍÓÚÑ]/.test(String(value || ''));\n}\n\nfunction looksLikeEmail(value) {\n  return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(value || '').trim());\n}\n\nfunction nextMissing() {\n  return fieldOrder.find((key) => !String(state.data[key] || '').trim()) || null;\n}\n\nfunction promptFor(field) {\n  const prompts = {\n    cuit: '¿Me pasás tu CUIT? Son 11 dígitos, con o sin guiones.',\n    email: '¿A qué mail te escribo si hace falta?',\n    razonSocial: '¿A nombre de quién queda, razón social o nombre y apellido?',\n    telefono: '¿Qué teléfono dejamos, con código de área?',\n    condicionTierra: '¿Qué condición frente a la tierra? Titular, locatario, usufructuario, mediero u otra.',\n    establecimiento: '¿Cómo se llama la finca?',\n    departamento: '¿En qué departamento de Mendoza queda? Por ejemplo San Rafael, Maipú o Luján.',\n    localidad: '¿Y la localidad?',\n  };\n  return prompts[field] || 'Decime cómo seguimos.';\n}\n\nfunction spokenAck(field) {\n  const acks = {\n    cuit: 'CUIT en regla.',\n    email: 'Dejo ese correo.',\n    razonSocial: 'Quedó el titular.',\n    telefono: 'Teléfono anotado.',\n    condicionTierra: 'Condición clara.',\n    establecimiento: 'Finca anotada.',\n    departamento: 'Departamento listo.',\n    localidad: 'Localidad lista.',\n  };\n  return acks[field] || 'Quedó anotado.';\n}\n\nfunction officialCondition(raw) {\n  const value = String(raw || '')\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '');\n  if (/\\b(titular|propietari)/.test(value)) return 'titular';\n  if (/\\busufructuar/.test(value)) return 'usufructuario';\n  if (/\\b(locatari|arrendatari)/.test(value)) return 'locatario';\n  if (/\\bmedier/.test(value)) return 'mediero';\n  if (/\\bfideicomis/.test(value)) return 'fideicomiso';\n  if (/\\bcomodatari/.test(value)) return 'comodatario';\n  if (/\\baparc/.test(value)) return 'aparcero';\n  if (/\\bapoderad/.test(value)) return 'apoderado';\n  return '';\n}\n\nfunction recordValidation(provider, check, status, detail) {\n  const row = { provider, check, status, detail, at: Date.now() };\n  const existing = state.validations.find((item) => item.provider === provider && item.check === check);\n  if (existing) Object.assign(existing, row);\n  else state.validations.push(row);\n}\n\nfunction requiredDocs() {\n  const cond = officialCondition(state.data.condicionTierra) || 'titular';\n  const items = [\n    { id: 'constancia_cuit', label: 'la constancia de CUIT (ARCA/AFIP)', required: true },\n    { id: 'legal', label: `la documentación legal: ${LEGAL_BY_CONDITION[cond]}`, required: true },\n    { id: 'inmobiliario', label: 'la boleta de Impuesto Inmobiliario (ATM)', required: true },\n    { id: 'riego', label: 'la boleta de riego o pozo (Irrigación)', required: true },\n  ];\n  if (state.data.hasVid) {\n    items.push({ id: 'inv', label: 'el censo o DJ de viñedos (INV)', required: true });\n  }\n  if (state.data.hasRenspa) {\n    items.push({ id: 'renspa', label: 'la constancia RENSPA (SENASA)', required: true });\n  }\n  items.push({\n    id: 'adicional',\n    label: 'documentación adicional si aplica (condóminos, sucesión o planos)',\n    required: false,\n  });\n  return items;\n}\n\nfunction receivedDocIds() {\n  return new Set(\n    state.documents\n      .filter((doc) => doc.officialType && doc.status !== 'metadata-only')\n      .map((doc) => doc.officialType)\n  );\n}\n\nfunction nextRequiredDoc() {\n  return requiredDocs().find((doc) => doc.required && !receivedDocIds().has(doc.id)) || null;\n}\n\nfunction inferDocType(text) {\n  const value = String(text || '')\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '');\n  if (/\\b(constancia|cuit|afip|arca)\\b/.test(value)) return 'constancia_cuit';\n  if (/\\b(escritura|boleto|contrato|locacion|arrendamiento|poder|medieria|comodato|aparceria|fideicomiso)\\b/.test(value)) {\n    return 'legal';\n  }\n  if (/\\b(inmobiliario|atm|catastro|rentas)\\b/.test(value)) return 'inmobiliario';\n  if (/\\b(riego|pozo|irrigacion)\\b/.test(value)) return 'riego';\n  if (/\\b(inv|vinedo|vid)\\b/.test(value)) return 'inv';\n  if (/\\b(renspa|senasa)\\b/.test(value)) return 'renspa';\n  if (/\\b(adicional|sucesion|condomino|plano)\\b/.test(value)) return 'adicional';\n  return '';\n}\n\nfunction syncSiaStep() {\n  if (state.status === 'revision' || state.status === 'completed') {\n    state.siaStep = 'TERMINAR';\n    return;\n  }\n  if (state.status === 'archivos') {\n    state.siaStep = 'ARCHIVOS';\n    return;\n  }\n  if (state.locationSaved || !nextMissing()) {\n    state.siaStep = 'ESTABLECIMIENTO';\n    return;\n  }\n  const missing = nextMissing();\n  state.siaStep = ['establecimiento', 'departamento', 'localidad'].includes(missing) ? 'ESTABLECIMIENTO' : 'TITULAR';\n}\n\nfunction askNextFile() {\n  const next = nextRequiredDoc();\n  if (!next) {\n    state.status = 'revision';\n    state.siaStep = 'TERMINAR';\n    state.pendingDoc = null;\n    return 'Con eso cierran los papeles obligatorios. El expediente queda en revisión demo; en el SIA real lo mira un administrador. Esto no implica validación oficial.';\n  }\n  state.status = 'archivos';\n  state.siaStep = 'ARCHIVOS';\n  state.pendingDoc = next.id;\n  return `Mandame ${next.label}, en foto o PDF. Recibirlo acá no implica validación oficial.`;\n}\n\nfunction startArchivos() {\n  state.status = 'archivos';\n  state.siaStep = 'ARCHIVOS';\n  if (state.data.hasVid === undefined && state.data.hasRenspa === undefined) {\n    state.pendingDoc = 'flags';\n    return 'Datos y mapa listos. Ahora los papeles. ¿Tenés viñedo (INV), RENSPA de SENASA, ambos o ninguno?';\n  }\n  return askNextFile();\n}\n\nfunction parseVidRenspaFlags(text) {\n  const value = String(text || '');\n  const both =\n    /\\b(ambos|ambas|los dos|las dos|los 2|las 2)\\b/.test(value) ||\n    /\\b(vid|vinedo|vina|inv)\\b.+\\b(renspa|senasa)\\b/.test(value) ||\n    /\\b(renspa|senasa)\\b.+\\b(vid|vinedo|vina|inv)\\b/.test(value);\n  const none =\n    /^(no|ninguno|ninguna|nada|no tengo)$/.test(value) ||\n    /\\b(ninguno|ninguna)\\b/.test(value) ||\n    /\\bno tengo (ninguno|nada|ni uno)\\b/.test(value);\n  if (both) return { vid: true, renspa: true, none: false };\n  const vid = /\\b(vid|vinedo|vina|inv)\\b/.test(value);\n  const renspa = /\\b(renspa|senasa)\\b/.test(value);\n  if (none && !vid && !renspa) return { vid: false, renspa: false, none: true };\n  return { vid, renspa, none: false };\n}\n\nfunction checklistText() {\n  const got = receivedDocIds();\n  return requiredDocs()\n    .filter((doc) => doc.required || got.has(doc.id))\n    .map((doc) => `${got.has(doc.id) ? 'listo' : 'falta'} ${doc.label}`)\n    .join('. ');\n}\n\nfunction isDocCommand() {\n  return /\\b(requisitos|documentos|papeles|checklist|que falta|que documentos|que papeles)\\b/.test(normalized);\n}\n\nfunction harvestFromText(text) {\n  const found = {};\n  const email = String(text || '').match(/[^\\s@]+@[^\\s@]+\\.[^\\s@]+/);\n  if (email && looksLikeEmail(email[0])) found.email = email[0].toLowerCase();\n\n  const cuitMatch = String(text || '').match(/\\b\\d{2}[-\\s.]?\\d{8}[-\\s.]?\\d\\b/) || String(text || '').match(/\\b\\d{11}\\b/);\n  if (cuitMatch && validCuit(cuitMatch[0])) found.cuit = cuitMatch[0].replace(/\\D/g, '');\n\n  const cond = officialCondition(text);\n  if (cond && /(titular|usufructuar|locatari|arrendatari|medier|fideicomis|comodatari|aparc|apoderad|propietari)/.test(\n    String(text || '')\n      .toLowerCase()\n      .normalize('NFD')\n      .replace(/[\\u0300-\\u036f]/g, '')\n  )) {\n    found.condicionTierra = cond;\n  }\n\n  const phones = String(text || '').match(/\\+?\\d[\\d\\s().-]{6,16}\\d/g) || [];\n  for (const phone of phones) {\n    const digits = phone.replace(/\\D/g, '');\n    if (digits.length >= 8 && digits.length <= 15 && digits.length !== 11 && digits !== found.cuit) {\n      found.telefono = digits;\n      break;\n    }\n  }\n\n  const nameMatch = String(text || '').match(\n    /(?:me llamo|razon social(?:\\s+es)?|mi nombre(?:\\s+es)?)\\s+([a-záéíóúñA-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ\\s.]{1,60})/i\n  );\n  if (nameMatch && hasLetters(nameMatch[1]) && !officialCondition(nameMatch[1])) {\n    found.razonSocial = nameMatch[1].trim();\n  }\n\n  const farmMatch = String(text || '').match(\n    /(?:la finca se llama|el establecimiento se llama|finca se llama|establecimiento se llama)\\s+([a-záéíóúñA-ZÁÉÍÓÚÑ][a-záéíóúñA-ZÁÉÍÓÚÑ\\s.]{1,60})/i\n  );\n  if (farmMatch && hasLetters(farmMatch[1])) {\n    found.establecimiento = farmMatch[1].trim();\n  }\n\n  return found;\n}\n\nfunction applyHarvest(text) {\n  const found = harvestFromText(text);\n  Object.entries(found).forEach(([key, value]) => {\n    if (String(state.data[key] || '').trim()) return;\n    if (key === 'cuit') {\n      state.data.cuit = value;\n      recordValidation('ARCA', 'cuit_dv', 'DEMO_OK', 'Dígito verificador correcto. Sin cruce oficial con ARCA.');\n      recordValidation('ANSES', 'identidad', 'NO_CONECTADO', 'No hay convenio demo con ANSES. El instructivo RUT no exige ANSES.');\n      return;\n    }\n    state.data[key] = value;\n  });\n  return found;\n}\n\nfunction detectObviousField(value) {\n  const trimmed = String(value || '').trim();\n  if (validCuit(trimmed)) return 'cuit';\n  if (looksLikeEmail(trimmed)) return 'email';\n  if (officialCondition(trimmed) && trimmed.split(/\\s+/).length <= 3) return 'condicionTierra';\n  const digits = trimmed.replace(/\\D/g, '');\n  if (!hasLetters(trimmed) && digits.length >= 8 && digits.length <= 15 && digits.length !== 11 && !validCuit(trimmed)) {\n    return 'telefono';\n  }\n  return '';\n}\n\nfunction isSmallTalk() {\n  if (\n    /\\b(confirmo|corregir|cambiar|modificar|nuevo registro|cancelar|mapa|ubicacion|perimetro|requisitos|documentos|papeles|constancia|escritura|contrato|renspa|vinedo|vid|inv|ambos|ambas|ninguno|los dos|las dos)\\b/.test(\n      normalized\n    )\n  ) {\n    return false;\n  }\n  if (/\\d{8,}/.test(input) || /@/.test(input)) return false;\n  return (\n    /^(hola|holis|buenas|buen dia|buenos dias|buenas tardes|buenas noches|hey|que tal|que onda)(\\s|$)/.test(normalized) ||\n    /\\b(como estas|como andas|que andas|todo bien vos)\\b/.test(normalized) ||\n    /^(gracias|muchas gracias|mil gracias)\\b/.test(normalized) ||\n    /^(quien sos|que haces|que es esto|sos un bot|para que sirve)$/.test(normalized) ||\n    /^(bien y vos|aca andamos|aca nomas|tranqui|joya)$/.test(normalized)\n  );\n}\n\nfunction opener() {\n  if (/\\b(como estas|como andas)\\b/.test(normalized)) return 'Bien, acá andamos. ';\n  if (/^(gracias|muchas gracias|mil gracias)\\b/.test(normalized)) return 'De nada. ';\n  if (/^(quien sos|que haces|que es esto|sos un bot|para que sirve)$/.test(normalized)) {\n    return 'Soy Gabi, te armo el expediente del RUT de Mendoza. ';\n  }\n  if (/^(hola|holis|buenas|buen dia|buenos dias|buenas tardes|buenas noches|hey|que tal|que onda)/.test(normalized)) {\n    return 'Hola, ¿todo bien? ';\n  }\n  return 'Seguimos. ';\n}\n\nfunction save(reply, extra = {}) {\n  const missing = nextMissing();\n  state.step = missing ? fieldOrder.indexOf(missing) + 1 : 9;\n  state.updatedAt = Date.now();\n  syncSiaStep();\n  const spoken = String(reply || '').replace(/^\\u200B+/, '');\n  const full = BOT_MARK + spoken;\n  return [{\n    json: {\n      ...$json,\n      chatId,\n      reply: full,\n      deterministicReply: full,\n      voiceReply: spoken,\n      state,\n      stateJson: JSON.stringify(state),\n      missingField: missing,\n      siaStep: state.siaStep,\n      ...extra,\n    },\n  }];\n}\n\nif (!chatId) {\n  return save('No pude identificar el chat. Mandame el mensaje de nuevo, por texto o por audio.');\n}\n\nif (/\\b(cancelar|cancela|salir|abandonar)\\b/.test(normalized)) {\n  state.status = 'cancelled';\n  return save('Cancelé este registro. Cuando quieras retomar, escribí “nuevo registro”.');\n}\n\nif (/\\b(reiniciar|empezar de nuevo|nuevo registro)\\b/.test(normalized)) {\n  state = JSON.parse(JSON.stringify(EMPTY_STATE));\n  return save('Expediente nuevo. ' + promptFor('cuit'));\n}\n\nif (isDocCommand()) {\n  if (nextMissing() || !state.locationSaved) {\n    return save(\n      'Primero cierro datos y mapa. Después te pido los archivos del instructivo: constancia de CUIT, documentación legal, inmobiliario y riego.'\n    );\n  }\n  return save(`Según el instructivo: ${checklistText()}. ${askNextFile()}`);\n}\n\nif (['image', 'document'].includes(inputType)) {\n  const documentType = inputType === 'image' ? 'foto' : 'documento';\n  const mediaAvailable = Boolean($json.mediaBase64 || $json.mediaUrl) && !$json.mediaOmitted;\n  const mediaId = String($json.messageId || `${documentType}-${Date.now()}`);\n  const inArchivos =\n    state.status === 'archivos' ||\n    state.status === 'revision' ||\n    (state.status === 'completed' && !nextMissing() && state.locationSaved);\n  const inferred = inferDocType(`${input} ${$json.mediaFileName || ''}`) || (inArchivos && state.pendingDoc !== 'flags' ? state.pendingDoc : '');\n  const officialType = inArchivos ? inferred || nextRequiredDoc()?.id || 'adicional' : '';\n  if (!state.documents.some((doc) => doc.id === mediaId)) {\n    state.documents.push({\n      id: mediaId,\n      type: documentType,\n      officialType: officialType || undefined,\n      mimeType: String($json.mediaMimeType || ''),\n      fileName: String($json.mediaFileName || ''),\n      receivedAt: Date.now(),\n      status: mediaAvailable ? 'received-demo' : 'metadata-only',\n    });\n  }\n  if (inArchivos && mediaAvailable && officialType && DOC_PROVIDERS[officialType]) {\n    const [provider, check] = DOC_PROVIDERS[officialType];\n    recordValidation(provider, check, 'RECIBIDO_DEMO', 'Archivo asociado al expediente. No implica validación oficial.');\n  }\n  const missing = nextMissing();\n  if (!mediaAvailable) {\n    return save(\n      `Recibí el aviso del ${documentType}, pero no pude descargar el archivo. ¿Lo mandás de nuevo? Mientras tanto seguimos por texto o audio.${missing ? ` ${promptFor(missing)}` : ''}`,\n      { mediaReceived: false }\n    );\n  }\n  if (inArchivos) {\n    const label = requiredDocs().find((doc) => doc.id === officialType)?.label || 'el archivo';\n    return save(\n      `Listo, recibí ${documentType === 'foto' ? 'la foto' : 'el documento'} como ${label}. Todavía no implica validación oficial. ${askNextFile()}`,\n      { mediaReceived: true }\n    );\n  }\n  return save(\n    `Recibí ${documentType === 'foto' ? 'la foto' : 'el documento'} y la asocié al registro de la demo; todavía no implica validación oficial.${missing ? ` ${promptFor(missing)}` : ' Si ya está todo, respondé “confirmo” y cerramos el armado.'}`,\n    { mediaReceived: true }\n  );\n}\n\nif (inputType === 'audio' && !input) {\n  return save('No se entendió bien el audio. ¿Lo repetís más cerca o me lo mandás por texto?');\n}\n\nconst correction = correctionText.match(\n  /(?:corregir|cambiar|modificar)\\s+(?:el |la |mi )?(cuit|correo|email|mail|razon social|nombre|telefono|condicion|establecimiento|finca|departamento|localidad)(?:\\s+(?:a|por|es)\\s+(.+))?/\n);\nif (correction) {\n  const aliases = {\n    correo: 'email',\n    mail: 'email',\n    nombre: 'razonSocial',\n    'razon social': 'razonSocial',\n    telefono: 'telefono',\n    condicion: 'condicionTierra',\n    finca: 'establecimiento',\n  };\n  const field = aliases[correction[1]] || correction[1];\n  delete state.data[field];\n  state.status = 'collecting';\n  const inlineValue = String(correction[2] || '').trim();\n  if (!inlineValue) return save(`Lo cambiamos ahora. ${promptFor(field)}`);\n  return validateAndStore(field, inlineValue, true);\n}\n\nfunction validateAndStore(field, value, correcting = false) {\n  applyHarvest(value);\n  const detected = detectObviousField(value);\n  if (detected && detected !== field && !correcting && String(state.data[field] || '').trim() === '') {\n    const missing = nextMissing() || field;\n    const taken = labels[detected] || detected;\n    return save(`Anoté ${taken}. ${promptFor(missing)}`);\n  }\n\n  const digits = value.replace(/\\D/g, '');\n  if (field === 'cuit') {\n    if (!/^\\d{11}$/.test(digits) && !state.data.cuit) {\n      return save('Ese CUIT no cierra: necesito los 11 dígitos, con o sin guiones.');\n    }\n    if (!validCuit(state.data.cuit || value)) {\n      delete state.data.cuit;\n      return save('Ese CUIT no es válido: revisá los 11 dígitos y el dígito verificador.');\n    }\n    if (!state.data.cuit) {\n      state.data.cuit = digits;\n      recordValidation('ARCA', 'cuit_dv', 'DEMO_OK', 'Dígito verificador correcto. Sin cruce oficial con ARCA.');\n      recordValidation('ANSES', 'identidad', 'NO_CONECTADO', 'No hay convenio demo con ANSES. El instructivo RUT no exige ANSES.');\n    }\n  } else if (field === 'email') {\n    if (!state.data.email) {\n      if (!looksLikeEmail(value)) {\n        return save('Ese correo parece incompleto. Mandamelo tipo nombre@dominio.com.');\n      }\n      state.data.email = value.toLowerCase();\n    }\n  } else if (field === 'telefono') {\n    if (!state.data.telefono) {\n      if (digits.length < 8 || digits.length > 15) {\n        return save('El teléfono parece incompleto. Mandalo con código de área, por ejemplo 2604 o 261.');\n      }\n      state.data.telefono = digits;\n    }\n  } else if (field === 'condicionTierra') {\n    if (!state.data.condicionTierra) {\n      const mapped = officialCondition(normalized || value);\n      if (/\\b(otra|otro)\\b/.test(normalized) && !mapped) {\n        return save('Decime cuál: titular, usufructuario, locatario, mediero, fideicomiso, comodatario, aparcero o apoderado.');\n      }\n      if (!mapped) return save('Decime si sos titular, locatario, usufructuario, mediero u otra condición frente a la tierra.');\n      state.data.condicionTierra = mapped;\n    }\n  } else if (field === 'razonSocial' || field === 'establecimiento') {\n    if (!state.data[field]) {\n      if (!hasLetters(value) || value.replace(/[\\d\\s.,/-]/g, '').trim().length < 2) {\n        return save(\n          field === 'razonSocial'\n            ? 'Eso parece un número, no un nombre. Decime la razón social o tu nombre y apellido.'\n            : 'Necesito el nombre de la finca o establecimiento, no un número.'\n        );\n      }\n      if (value.trim().length < 2) return save(`Necesito ${labels[field]} para continuar.`);\n      state.data[field] = value.trim();\n    }\n  } else if (field === 'departamento') {\n    if (!state.data.departamento) {\n      const parts = value.split(/[,/|-]/).map((part) => part.trim()).filter(Boolean);\n      if (parts[0] && parts[0].length >= 2) state.data.departamento = parts[0];\n      if (parts[1] && parts[1].length >= 2 && !state.data.localidad) state.data.localidad = parts[1];\n      if (!state.data.departamento) return save(`Necesito ${labels[field]} para continuar.`);\n    }\n  } else {\n    if (!state.data[field]) {\n      if (value.trim().length < 2) return save(`Necesito ${labels[field]} para continuar.`);\n      state.data[field] = value.trim();\n    }\n  }\n\n  const missing = nextMissing();\n  if (missing) {\n    return save(`${correcting ? 'Dato corregido.' : spokenAck(field)} ${promptFor(missing)}`);\n  }\n  state.status = 'confirm';\n  const d = state.data;\n  if (!state.locationSaved) {\n    return save(\n      `Ya tengo tus datos: CUIT ${d.cuit}, ${d.razonSocial}, ${d.establecimiento} en ${d.localidad}. Te mando un enlace seguro para marcar el GPS y el perímetro; dura 30 minutos. Cuando termines, escribí “ya cargué el mapa”.`,\n      { needLanding: true }\n    );\n  }\n  return save(\n    `Quedó así: CUIT ${d.cuit}, ${d.razonSocial}, correo ${d.email}, teléfono ${d.telefono}, ${d.condicionTierra}, ${d.establecimiento} en ${d.localidad}, ${d.departamento}. Si te cierra, respondé “confirmo”. Si no, decime qué dato corregir.`\n  );\n}\n\nif (state.status === 'cancelled') {\n  return save('Este registro quedó cancelado. Escribí “nuevo registro” cuando quieras empezar de nuevo.');\n}\n\nconst justMapped = /\\b(ya cargue|ya marque|listo el mapa|ubicacion lista|ya la cargue)\\b/.test(normalized);\nif (justMapped) {\n  state.locationSaved = true;\n} else if (/\\b(mapa|ubicacion|poligono|perimetro|marcar la finca|cargar ubicacion|enlace)\\b/.test(normalized)) {\n  return save(\n    'Te mando un enlace seguro para marcar el GPS y el perímetro de la finca. Vence en 30 minutos. Cuando termines, volvé y escribí “ya cargué el mapa”.',\n    { needLanding: true }\n  );\n}\n\nif (state.status === 'archivos' && state.pendingDoc === 'flags') {\n  const flags = parseVidRenspaFlags(normalized);\n  if (!flags.vid && !flags.renspa && !flags.none && !isSmallTalk()) {\n    return save('Decime una de estas: viñedo, RENSPA, ambos o ninguno.');\n  }\n  if (flags.vid || flags.renspa || flags.none) {\n    state.data.hasVid = flags.none ? false : flags.vid;\n    state.data.hasRenspa = flags.none ? false : flags.renspa;\n    return save(askNextFile());\n  }\n}\n\nif (state.status === 'archivos' && inferDocType(normalized)) {\n  state.pendingDoc = inferDocType(normalized);\n  const label = requiredDocs().find((doc) => doc.id === state.pendingDoc)?.label || 'ese archivo';\n  return save(`Lo anoto como ${label}. Mandame la foto o el PDF; recibirlo acá no implica validación oficial.`);\n}\n\nif (isSmallTalk()) {\n  const missing = nextMissing();\n  const finca = String(state.data.establecimiento || '').trim();\n  const who = finca || String(state.data.razonSocial || '').trim();\n  if (state.status === 'archivos') {\n    if (state.pendingDoc === 'flags') {\n      return save(opener() + '¿Tenés viñedo, RENSPA, ambos o ninguno?');\n    }\n    return save(opener() + askNextFile());\n  }\n  if (state.status === 'revision') {\n    return save(opener() + 'El expediente quedó en revisión demo. Podés mandar un archivo extra o escribir “nuevo registro”.');\n  }\n  if (state.status === 'completed') {\n    return save(opener() + 'El armado ya está cerrado. Si querés, mandá una foto o escribí “nuevo registro”.');\n  }\n  if (!missing && state.locationSaved) {\n    return save(\n      opener() +\n        (who ? `Ya tengo ${who} cargada. ` : 'Ya tengo tu registro cargado. ') +\n        '¿Lo damos por bueno o hay que cambiar algún dato?'\n    );\n  }\n  if (!missing && !state.locationSaved) {\n    return save(opener() + 'Me falta que marques la finca en el mapa. Te mando un enlace seguro.', { needLanding: true });\n  }\n  if (state.step === 0 && missing === 'cuit') {\n    state.status = 'collecting';\n    return save(opener() + 'Te armo el expediente ahora. ' + promptFor('cuit'));\n  }\n  return save(opener() + promptFor(missing));\n}\n\nif (state.status === 'archivos') {\n  return save(askNextFile());\n}\n\nif (state.status === 'revision') {\n  return save('El expediente ya está en revisión demo. Podés mandar documentación adicional o escribir “nuevo registro”.');\n}\n\nif (state.status === 'confirm' || !nextMissing()) {\n  if (!state.locationSaved) {\n    return save(\n      'Ya tengo tus datos. Ahora falta marcar la ubicación y el perímetro de la finca. Te mando un enlace seguro; dura 30 minutos. Cuando termines, escribí “ya cargué el mapa”.',\n      { needLanding: true }\n    );\n  }\n  if (/\\b(si|confirmo|confirmar|correcto|esta bien|todo bien)\\b/.test(normalized)) {\n    return save(startArchivos());\n  }\n  if (/^\\s*(corregir|cambiar|modificar)\\s*$/.test(normalized)) {\n    return save('Decime el dato: CUIT, correo, nombre, teléfono o la finca.');\n  }\n  if (justMapped) {\n    return save('Quedó el mapa. Si te cierra, respondé “confirmo”. Si hay que cambiar un dato, decime cuál.');\n  }\n  if (state.status === 'completed') {\n    return save('El armado demo ya está completo. Podés mandar documentación, corregir un dato o escribir “nuevo registro”.');\n  }\n  return save('No te seguí del todo. ¿Cerramos el registro o hay que cambiar algún dato? Si está bien, respondé “confirmo”.');\n}\n\nconst missing = nextMissing();\nif (state.step === 0 && missing === 'cuit' && !/\\d{11}/.test(input) && !looksLikeEmail(input) && !validCuit(input)) {\n  applyHarvest(input);\n  if (nextMissing() === 'cuit') {\n    state.status = 'collecting';\n    return save('Perfecto, te armo el expediente ahora. ' + promptFor('cuit'));\n  }\n  return save('Anoté lo que ya me diste. ' + promptFor(nextMissing()));\n}\n\nreturn validateAndStore(missing, input);\n"
+      },
+      "id": "b367527d-b305-44ef-898e-603d54bb417e",
+      "name": "Respuesta RUT segura",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9072,
+        3344
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://openwa-api:2785/api/sessions/e75b92ce-697c-4864-9c6a-5c48be1b9599/messages/send-text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ chatId: $json.chatId, text: $json.reply }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "101e2a1a-3b78-42fc-a91e-0a88f61c5798",
+      "name": "OpenWA - Enviar respuesta segura",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9376,
+        3232
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "HMl1Be2nj7mdMRAw",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ 'Mensaje del usuario: ' + $('Respuesta RUT segura').first().json.input + '\\nRespuesta determinista obligatoria: ' + $('Respuesta RUT segura').first().json.deterministicReply }}",
+        "options": {
+          "systemMessage": "Sos Gabi, el asistente de WhatsApp de la demo del RUT de Mendoza. Hablás como una persona de Mendoza: voseo, corto, cálido, sin tono de formulario ni de menú.\n\nTe pasan el mensaje del usuario y una respuesta determinista ya validada. Contestá al usuario; no recites un script.\n\nREGLAS\n- Devolvé solamente el texto final, sin Markdown.\n- No uses el prefijo \"Para registrarte (demo RUT):\".\n- No cambies CUIT, mails, nombres, números, estados ni validaciones.\n- Si hay un enlace, copialo tal cual.\n- Máximo 2 oraciones.\n- Si el usuario saludó o preguntó cómo estás, contestá eso primero y recién después el siguiente paso.\n- No pongas comillas alrededor de confirmo o corregir como si fueran botones.\n- No inventes trámites oficiales ni digas que algo quedó validado.\n- Pedí el dato que pide la determinista, pero como lo pediría alguien por WhatsApp."
+        }
+      },
+      "id": "2611ffcf-1813-4bee-8394-956257e2aa66",
+      "name": "Agente IA conversacional",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        9072,
+        3344
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "623d100c-ef33-426e-bd5b-e91ba66101f8",
+      "name": "Gemini - Cerebro",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        8928,
+        3632
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "77jKYOIHaHvBAV0C",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "speech",
+        "voice": {
+          "__rl": true,
+          "value": "xDZJO6bbSnscJEAbhpRF",
+          "mode": "list",
+          "cachedResultName": "GABI B"
+        },
+        "text": "={{ $json.reply }}",
+        "additionalOptions": {
+          "model": {
+            "__rl": true,
+            "value": "eleven_multilingual_v2",
+            "mode": "id"
+          },
+          "outputFormat": "mp3_44100_128",
+          "voiceSettings": "{\n  \"stability\": 0.42,\n  \"similarity_boost\": 0.78,\n  \"style\": 0.3,\n  \"use_speaker_boost\": true,\n  \"speed\": 1.02\n}"
+        },
+        "requestOptions": {}
+      },
+      "id": "6320ae9d-a107-4133-b863-d9c09fabfa59",
+      "name": "ElevenLabs - Generar respuesta de voz",
+      "type": "@elevenlabs/n8n-nodes-elevenlabs.elevenLabs",
+      "typeVersion": 1,
+      "position": [
+        9376,
+        3344
+      ],
+      "credentials": {
+        "elevenLabsApi": {
+          "id": "xjtRk8u5lKY2SEEM",
+          "name": "ElevenLabs account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "binaryToPropery",
+        "destinationKey": "audioBase64",
+        "options": {
+          "keepSource": "json"
+        }
+      },
+      "id": "41cff575-15d0-48e1-8e80-b535fa638efa",
+      "name": "Audio de respuesta a Base64",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        9632,
+        3344
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://openwa-api:2785/api/sessions/e75b92ce-697c-4864-9c6a-5c48be1b9599/media/convert/voice",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ base64: $json.audioBase64 }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "1bf9184f-06be-41e6-a9eb-5fadf07d0f66",
+      "name": "OpenWA - Convertir a OGG Opus",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        9872,
+        3344
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "HMl1Be2nj7mdMRAw",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://openwa-api:2785/api/sessions/e75b92ce-697c-4864-9c6a-5c48be1b9599/messages/send-audio",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ chatId: $('Normalizar entrada').first().json.chatId, base64: $json.base64, mimetype: $json.mimetype, ptt: true }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "c563184b-690d-491e-be66-5c07e9902b10",
+      "name": "OpenWA - Enviar nota de voz",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        10128,
+        3344
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "HMl1Be2nj7mdMRAw",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## OpenWA · Agente RUT Mendoza\n\nWhatsApp → OpenWA → n8n → Redis → texto/STT → Gemini (prompt RUT) + memoria → ElevenLabs → nota de voz.\n\n### Webhook OpenWA\n`http://n8n:5678/webhook/pruebas` — evento útil: **message.received**\n\n### ⚠️ \"No output data\" en Normalizar entrada\nOpenWA manda MUCHOS eventos: `status.received`, `message.ack`, etc.\nEl nodo **solo deja pasar `message.received`** (texto o audio entrante).\nSi ves `status.received` → return [] → n8n frena. **Es normal, no es error.**\n\n**Probar bien:** mandá un WhatsApp real al número → debe llegar `message.received` y seguir a Redis.\n\nOpcional en OpenWA: filtrar webhook solo a `message.received`.\nOpcional en n8n (nodo Code): Settings → Always Output Data (solo cosmético).\n\n### .env demo\n`WHATSAPP_RUT_NUMBER=5492613417054`\n\n### Credenciales\nRedis, ElevenLabs, Gemini, Postgres, OpenWA Header Auth.\n",
+        "height": 1568,
+        "width": 3388
+      },
+      "id": "a490c052-e8e6-4eb7-9600-8f8c78939c2c",
+      "name": "LEEME - Configuración",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        7040,
+        2240
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "state_raw",
+        "key": "={{ 'rut:state:' + $json.chatId }}",
+        "keyType": "string",
+        "options": {
+          "dotNotation": false
+        }
+      },
+      "id": "7019f4df-90b4-4ac8-b28d-deec91e795cb",
+      "name": "Redis - Recuperar estado RUT",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        8460,
+        3152
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ 'rut:state:' + $('Respuesta RUT segura').first().json.chatId }}",
+        "value": "={{ $('Respuesta RUT segura').first().json.stateJson }}",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 604800
+      },
+      "id": "8ece3cb1-71c0-4ca1-b320-91c58b3792b6",
+      "name": "Redis - Guardar estado RUT",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        9296,
+        3344
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const safe = $('Respuesta RUT segura').first().json;\nconst mark = '\\u200B';\nconst strip = (text) => String(text || '')\n  .replace(/^\\u200B+/, '')\n  .replace(/^Para registrarte \\(demo RUT\\):\\s*/i, '')\n  .trim();\nconst ai = strip($json.output || '');\nconst deterministic = strip(safe.deterministicReply);\nconst usable = Boolean(\n  ai.length >= 20 &&\n  !/^(no|ok|dale|si|sí)\\.?$/i.test(ai) &&\n  !/```/.test(ai) &&\n  !(deterministic.length > 80 && ai.length < deterministic.length * 0.4)\n);\nconst spoken = usable ? ai : deterministic;\nreturn [{ json: { ...safe, reply: mark + spoken, voiceReply: spoken } }];\n"
+      },
+      "id": "867a5138-a210-4afe-a516-e2824c5b726c",
+      "name": "Seleccionar respuesta híbrida",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        9600,
+        3344
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook OpenWA": {
+      "main": [
+        [
+          {
+            "node": "Normalizar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar entrada": {
+      "main": [
+        [
+          {
+            "node": "Redis - Deduplicar webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis - Deduplicar webhook": {
+      "main": [
+        [
+          {
+            "node": "¿Primera entrega?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Primera entrega?": {
+      "main": [
+        [
+          {
+            "node": "Restaurar mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restaurar mensaje": {
+      "main": [
+        [
+          {
+            "node": "Redis - Recuperar estado RUT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es audio?": {
+      "main": [
+        [
+          {
+            "node": "¿Audio descargado?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar entrada desde texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Audio descargado?": {
+      "main": [
+        [
+          {
+            "node": "Audio entrante - Base64 a archivo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OpenWA - Avisar audio no disponible",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audio entrante - Base64 a archivo": {
+      "main": [
+        [
+          {
+            "node": "ElevenLabs - Transcribir audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ElevenLabs - Transcribir audio": {
+      "main": [
+        [
+          {
+            "node": "Preparar entrada desde audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar entrada desde audio": {
+      "main": [
+        [
+          {
+            "node": "Respuesta RUT segura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar entrada desde texto": {
+      "main": [
+        [
+          {
+            "node": "Respuesta RUT segura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta RUT segura": {
+      "main": [
+        [
+          {
+            "node": "Redis - Guardar estado RUT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente IA conversacional": {
+      "main": [
+        [
+          {
+            "node": "Seleccionar respuesta híbrida",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini - Cerebro": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Agente IA conversacional",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ElevenLabs - Generar respuesta de voz": {
+      "main": [
+        [
+          {
+            "node": "Audio de respuesta a Base64",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audio de respuesta a Base64": {
+      "main": [
+        [
+          {
+            "node": "OpenWA - Convertir a OGG Opus",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenWA - Convertir a OGG Opus": {
+      "main": [
+        [
+          {
+            "node": "OpenWA - Enviar nota de voz",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis - Recuperar estado RUT": {
+      "main": [
+        [
+          {
+            "node": "¿Es audio?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis - Guardar estado RUT": {
+      "main": [
+        [
+          {
+            "node": "Agente IA conversacional",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Seleccionar respuesta híbrida": {
+      "main": [
+        [
+          {
+            "node": "OpenWA - Enviar respuesta segura",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ElevenLabs - Generar respuesta de voz",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "timezone": "America/Argentina/Buenos_Aires",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "406c6e26-a0f6-4950-b230-77031b003dcf",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "0d62e806263d5f251b732afec854a1bd7d6efb57df0242032f2a3413299a0a66"
+  },
+  "nodeGroups": [],
+  "id": "tN8n82BJ8H2iPcaz",
+  "tags": []
+}

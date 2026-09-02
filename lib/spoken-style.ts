@@ -1,5 +1,3 @@
-import { neutralizeToUsted } from "@/lib/spoken-tone";
-
 const CLOSING_DUPLICATE =
   /\s*(¿Tiene alguna duda[^.?]*\??|¿Tenés alguna duda[^.?]*\??|Dígame cómo seguimos\.?|Decime cómo seguimos\.?|¿Cómo seguimos\??)\s*$/i;
 
@@ -14,6 +12,9 @@ function applyPronunciation(text: string): string {
     .replace(/\bRUT\b/g, "RUT")
     .replace(/\bODK\s*Collect\b/gi, "O D K Collect")
     .replace(/\bODK\b/g, "O D K")
+    .replace(/\bXForms?\b/g, "equis forms")
+    .replace(/\bCentral\b/g, "Central")
+    .replace(/\bagriencuestas\.mendoza\.gov\.ar\b/gi, "agriencuestas punto mendoza punto gov punto a erre")
     .replace(/\bc[oó]digo\s+QR\b/gi, "código Q R")
     .replace(/\bQR\b/g, "Q R")
     .replace(/código\s+código\s+Q R/gi, "código Q R")
@@ -34,15 +35,22 @@ function applyPronunciation(text: string): string {
     .replace(/\bPerfecto, anotado\b/gi, "Anotado");
 }
 
+/** Texto para el chat: sin deletrear QR / ODK. */
+export function displaySpoken(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/\bche\b/gi, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+}
+
 /**
- * Chat normal: limpia y acorta un poco para respuestas rápidas.
- * No convierte cada punto en "...": eso hace tartamudear al modelo flash.
+ * Solo para TTS: pronunciación. No usar esto en el globo del chat.
  */
 export function humanizeSpoken(text: string): string {
-  let t = text.replace(/\s+/g, " ").trim();
+  let t = displaySpoken(text);
   if (!t) return t;
 
-  t = neutralizeToUsted(t);
   t = applyPronunciation(t);
 
   const closings = t.match(/¿[^?]+\?/g);
@@ -67,7 +75,6 @@ export function humanizeSpoken(text: string): string {
 export function prepareTourNarration(text: string): string {
   let t = text.replace(/\s+/g, " ").trim();
   if (!t) return t;
-  t = neutralizeToUsted(t);
   t = applyPronunciation(t);
   // Evitar rachas de puntos suspensivos que fragmentan el audio.
   t = t.replace(/\.{3,}/g, ".");

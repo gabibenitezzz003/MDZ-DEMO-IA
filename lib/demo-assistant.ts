@@ -4,7 +4,8 @@ import {
   fieldLabels,
   wantsEndSession,
 } from "@/lib/form-extract";
-import { wantsContinueTour, wantsListeningCheck } from "@/lib/intent-guards";
+import { greetingReply } from "@/lib/greeting-reply";
+import { wantsContinueTour, wantsListeningCheck, wantsSimpleGreeting } from "@/lib/intent-guards";
 import {
   answerFact,
   findBestSections,
@@ -14,6 +15,14 @@ import {
 } from "@/lib/page-knowledge";
 import { buildSectionGuide } from "@/lib/section-guide";
 import type { AgentAction } from "@/lib/types";
+import {
+  buildWhatsAppRutUrl,
+  wantsRutDemoWizard,
+  wantsRutExplainOnly,
+  wantsRutNavigate,
+  wantsRutWhatsAppHandoff,
+  whatsAppRutSpoken,
+} from "@/lib/whatsapp-rut";
 
 export type AssistantIntent = {
   action: AgentAction;
@@ -56,7 +65,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       understood: false,
       useGuide: false,
       reply:
-        "Dígame qué necesita: un cultivo, mapas, precios, capacitaciones o el RUT, y lo resolvemos.",
+        "Decime qué necesitás: un cultivo, mapas, precios, capacitaciones o el registro de tierras, y lo resolvemos.",
     };
   }
 
@@ -66,7 +75,16 @@ export function interpretUtterance(raw: string): AssistantIntent {
       understood: true,
       useGuide: false,
       reply:
-        "Sí, la escucho a usted. Acabo de recibir su mensaje. ¿En qué la puedo ayudar: RUT, un cultivo, mapas o clima?",
+        "Sí, te escucho. Decime qué necesitás y lo vemos.",
+    };
+  }
+
+  if (wantsSimpleGreeting(raw)) {
+    return {
+      action: "describe",
+      understood: true,
+      useGuide: false,
+      reply: greetingReply(raw),
     };
   }
 
@@ -151,9 +169,13 @@ export function interpretUtterance(raw: string): AssistantIntent {
       target: "ajo",
       understood: true,
       useGuide: false,
-      payload: { openLink: true, click: true },
+      payload: {
+        openLink: true,
+        click: true,
+        url: officialUrlFor("ajo"),
+      },
       reply:
-        "Lo llevo a ajo: informes y datos productivos del cultivo. Le abro la ficha oficial. ¿Después seguimos por tomate industria o por precios?",
+        "Dale, te llevo a ajo y te abro la ficha oficial: ahí están informes y datos productivos. Yo sigo acá. ¿Después tomate industria o precios?",
     };
   }
 
@@ -207,59 +229,72 @@ export function interpretUtterance(raw: string): AssistantIntent {
     };
   }
 
-  if (
-    /(inscrib|registrar|llevar.*rut|llevame.*rut|\brut\b|registro unico|wizard)/.test(
-      text
-    )
-  ) {
-    if (/(paso\s*)?4|archivo|documentac|papel/.test(text)) {
-      const locatario = /locatario|arrendatario|alquiler/.test(text);
-      return {
-        action: "show_checklist",
-        understood: true,
-        payload: {
-          condicion_tierra: locatario ? "Locatario/Arrendatario" : "Titular",
-        },
-        reply: locatario
-          ? "Te llevo al paso 4, con la documentación de locatario o arrendatario."
-          : "Te llevo al paso 4 del RUT, al checklist de papeles.",
-      };
-    }
-    const stepMatch = text.match(/paso\s*([1-5])/);
-    if (stepMatch) {
-      return {
-        action: "rut_set_step",
-        target: stepMatch[1],
-        understood: true,
-        reply: `Te abro el paso ${stepMatch[1]} del wizard.`,
-      };
-    }
-    if (openLink || /\bsia\b|oficial/.test(text)) {
-      return {
-        action: "open_external",
-        target: officialUrlFor("rut"),
-        understood: true,
-        payload: { alsoOpenRut: true },
-        reply:
-          "Te abro el SIA oficial y también el wizard DEMO del RUT, para que veas el recorrido.",
-      };
-    }
+  if (wantsRutExplainOnly(raw)) {
+    return {
+      action: "navigate",
+      target: "rut",
+      understood: true,
+      useGuide: false,
+      reply:
+        "El RUT es el Registro Único de Tierras. Para registrarte lo derivamos a WhatsApp con un agente que valida datos y documentación. ¿Querés que te abra WhatsApp ahora?",
+    };
+  }
+
+  if (wantsRutDemoWizard(raw)) {
     return {
       action: "open_rut",
       understood: true,
       useGuide: false,
       reply:
-        "Le abro el wizard del RUT para cargar la declaración paso a paso. Si me pasa CUIT o mail, le pregunto si los cargo yo. ¿Arrancamos por el paso 1?",
+        "Te abro el wizard DEMO en la página para ver el recorrido visual. El registro real se completa por WhatsApp.",
     };
   }
 
-  if (/hola|buen dia|buenas|ayuda|que podes|que haces|como andas|como esta/.test(text)) {
+  if (wantsRutWhatsAppHandoff(raw)) {
+    if (openLink || /\bsia\b|oficial/.test(text)) {
+      return {
+        action: "open_external",
+        target: officialUrlFor("rut"),
+        understood: true,
+        payload: { sectionId: "rut" },
+        reply:
+          "Te abro el S I A oficial. Para registrarte con asistencia, también podés usar el agente por WhatsApp.",
+      };
+    }
+    const wa = buildWhatsAppRutUrl();
+    return {
+      action: "open_whatsapp",
+      target: wa || undefined,
+      understood: true,
+      useGuide: false,
+      payload: {
+        alsoNavigate: true,
+        sectionId: "rut",
+        whatsappUrl: wa || undefined,
+      },
+      reply: whatsAppRutSpoken(Boolean(wa)),
+    };
+  }
+
+  if (wantsRutNavigate(raw)) {
+    return {
+      action: "navigate",
+      target: "rut",
+      understood: true,
+      useGuide: false,
+      payload: { openLink: false, click: true },
+      reply:
+        "Dale, te llevo a la sección del RUT. Ahí ves de qué se trata el Registro Único de Tierras. Si querés registrarte, decime y te abro WhatsApp.",
+    };
+  }
+
+  if (/ayuda|que podes|que haces/.test(text)) {
     return {
       action: "describe",
       understood: true,
       useGuide: false,
       reply:
-        "Hola, soy el asistente de Agricultura Mendoza. Puedo resolverle el RUT, llevarlo a un cultivo, mapas o clima. ¿Qué necesita ahora?",
+        "Te ayudo con el RUT por WhatsApp, cultivos, mapas, clima o el recorrido de la demo. Decime en una frase qué buscás.",
     };
   }
 
@@ -271,7 +306,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       useGuide: false,
       payload: { continueTour: true },
       reply:
-        "Seguimos. Si quiere ir a algo puntual, diga el nombre: RUT, mapas, ajo o agrometeorología.",
+        "Seguimos. Si querés ir a algo puntual, decime el nombre: RUT, mapas, ajo o agrometeorología.",
     };
   }
 
@@ -282,7 +317,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       useGuide: false,
       payload: { explainLast: true },
       reply:
-        "Claro. Dígame qué parte no le cerró y se la explico, o pedime que vuelva a marcar esa sección.",
+        "Claro. Contame qué parte no te cerró y te lo explico, o pedime que vuelva a marcar esa sección.",
     };
   }
 
@@ -333,10 +368,12 @@ export function interpretUtterance(raw: string): AssistantIntent {
       target: best.id,
       understood: true,
       payload: {
-        openLink: false,
+        openLink: true,
+        click: true,
+        url: best.externalUrl || officialUrlFor(best.id),
         related: hits.slice(1).map((h) => h.title),
       },
-      reply: spoken,
+      reply: `${spoken} Te abrí el recurso oficial en otra pestaña; yo sigo acá.`,
     };
   }
 
@@ -345,6 +382,6 @@ export function interpretUtterance(raw: string): AssistantIntent {
     understood: false,
     useGuide: false,
     reply:
-      "No lo seguí del todo. ¿Busca el RUT, un cultivo (ajo, ciruela…), mapas o clima? Dígamelo en una frase y lo resuelvo.",
+      "No lo seguí del todo. ¿Buscás el RUT, un cultivo (ajo, ciruela…), mapas o clima? Decime en una frase y lo resolvemos.",
   };
 }

@@ -1,6 +1,6 @@
 import { withTimeout } from "@/lib/async-timeout";
 
-const STT_TIMEOUT_MS = 12_000;
+const STT_TIMEOUT_MS = 5_000;
 
 function modelCandidates() {
   const preferred = process.env.GEMINI_MODEL?.trim();
@@ -10,7 +10,7 @@ function modelCandidates() {
     "gemini-3.5-flash",
     "gemini-2.5-flash",
   ].filter(Boolean) as string[];
-  return [...new Set(list)].slice(0, 2);
+  return [...new Set(list)].slice(0, 1);
 }
 
 /**
@@ -25,7 +25,7 @@ export async function transcribeWithGemini(
 
   const b64 = audio.toString("base64");
   const prompt =
-    "Transcribí este audio en español (Argentina). Devolvé SOLO el texto hablado, sin comillas ni explicación. Si no hay habla clara, devolvé exactamente: VACIO";
+    "Transcribí este audio en español (Argentina), literal. Devolvé SOLO el texto hablado, sin comillas ni explicación. Si es un saludo (hola, cómo estás, cómo andás, buenas), transcribilo tal cual: NUNCA lo reemplaces por RUT ni por un trámite. Si no hay habla clara, devolvé exactamente: VACIO";
 
   for (const model of modelCandidates()) {
     try {

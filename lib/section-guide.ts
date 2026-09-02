@@ -16,9 +16,13 @@ const RELATED: Record<string, string[]> = {
   ajo: ["tomate", "cinturon-verde", "horticultura"],
   tomate: ["ajo", "durazno", "horticultura"],
   "cinturon-verde": ["horticultura", "precios", "ajo"],
-  rut: ["tramites", "odk-collect", "normativa"],
-  tramites: ["rut", "odk-collect", "normativa"],
-  "odk-collect": ["rut", "precios", "capacitaciones"],
+  rut: ["tramites", "normativa"],
+  tramites: ["rut", "normativa"],
+  ingenieria: ["odk-collect", "odk-forms", "odk-tablero"],
+  "odk-collect": ["odk-forms", "odk-flujo", "odk-tablero"],
+  "odk-forms": ["odk-collect", "odk-tablero", "fenologia"],
+  "odk-flujo": ["odk-collect", "odk-forms"],
+  "odk-tablero": ["odk-forms", "odk-collect"],
   "monitoreo-heladas": ["agrometeorologia", "estaciones", "radar"],
   agrometeorologia: ["estaciones", "radar", "eventos-meteo"],
   precios: ["horticultura", "fruticultura", "cinturon-verde"],
@@ -38,8 +42,8 @@ const SPOKEN: Record<string, string> = {
   normativa:
     "Esta es la normativa. Entre otras, el RUT está en la ley cuatro mil cuatrocientos treinta y ocho y el decreto doscientos veintinueve. También hay normas de BPA, orgánicos, forestales y vitivinicultura.",
   tramites:
-    "Esta es la zona de trámites... El que más piden es el RUT, el Registro Único de Tierras, que en la provincia se hace por el S I A. Si querés te abro el wizard y lo vemos paso a paso.",
-  rut: "El RUT es el Registro Único de Tierras. En el oficial se hace por el S I A. Acá te abro el wizard de la demo y te voy guiando: cuenta, mail, la declaración y los papeles. Si me pasás tus datos por el chat, te pregunto si los cargo yo o los cargás vos.",
+    "Esta es la zona de trámites... El que más piden es el RUT, el Registro Único de Tierras. Para registrarte te derivamos a WhatsApp: un agente te guía con datos, fotos y documentación.",
+  rut: "El RUT es el Registro Único de Tierras. Para registrarse lo derivamos a WhatsApp: un agente valida datos, pide fotos y documentación, y puede responder por texto o audio. Si solo quiere ver el recorrido visual, diga wizard demo.",
   "publicaciones-ia":
     "Acá están las publicaciones oficiales. Desde este bloque podés ir a economía regional, manejo hídrico, fruticultura, horticultura o frutos secos.",
   "economia-regional":
@@ -57,7 +61,7 @@ const SPOKEN: Record<string, string> = {
   durazno:
     "Acá está durazno industria. En el portal oficial hay informes, tableros e índices tecnológicos. Si te sirve, después te muestro ciruela o tomate industria, que también son cadenas fuertes.",
   ciruela:
-    "Ciruela: acá tiene el bloque del cultivo. En el oficial están informes, pronóstico de cosecha y reportes. ¿Quiere el link oficial o seguimos por durazno?",
+    "Dale, te llevo a ciruela y te abro el oficial: ahí están informes, pronóstico de cosecha y reportes. Yo sigo acá. ¿Después durazno o fenología?",
   cereza:
     "Acá está cereza: información productiva y reportes del cultivo. Puedo llevarte también a ciruela o al calendario fenológico.",
   vid: "Esta es vid. Hay información de viticultura y se cruza mucho con heladas, agrometeorología y fenología. Decime si querés ir a alguna de esas.",
@@ -65,7 +69,7 @@ const SPOKEN: Record<string, string> = {
     "Esta es fenología: los estadios del cultivo a lo largo del año. Sirve para ciruela, durazno, vid y también para hortalizas.",
   "cultivos-horticolas":
     "Esta es la zona hortícola. Los más pedidos son ajo, tomate industria y cinturón verde.",
-  ajo: "Ajo: acá están informes y datos productivos. ¿Abro la ficha oficial o prefiere tomate industria / precios?",
+  ajo: "Dale, te llevo a ajo y te abro el oficial con informes y datos productivos. Yo sigo acá. ¿Después tomate industria o precios?",
   tomate:
     "Acá está tomate industria. En el portal hay informes y datos de esa cadena. También te puedo mostrar durazno industria, que se parece en la lógica de procesamiento.",
   "cinturon-verde":
@@ -77,7 +81,7 @@ const SPOKEN: Record<string, string> = {
   herramientas:
     "Estas son las herramientas digitales: agrometeorología, mapas, estaciones, visor, radar y análisis de eventos. Decime cuál querés ver.",
   agrometeorologia:
-    "Esto es agrometeorología: clima aplicado a la producción. Desde aquí puede pasar a estaciones o al radar si lo necesita.",
+    "Te llevo a agrometeorología y te abro el oficial: clima aplicado a la producción. Yo sigo acá. ¿Después estaciones o radar?",
   "mapas-agricolas":
     "Estos son los mapas agrícolas de Mendoza... El visor está al lado, por si querés verlo en el mapa.",
   estaciones:
@@ -92,8 +96,16 @@ const SPOKEN: Record<string, string> = {
     "Acá están las herramientas de Buenas Prácticas Agrícolas. Si te interesa formarte, también hay una capacitación de BPA.",
   precios:
     "Este es el relevamiento de precios: hortalizas, frutas y huevos al consumidor en Mendoza, con informes semanales.",
+  ingenieria:
+    "Esta es la vista de ingeniería: ODK Central de Mendoza, proyecto Agricultura Mendoza. Acá está el QR real de app user, los cinco formularios publicados y un tablero simulado.",
   "odk-collect":
-    "Este es el bloque de ODK Collect. El código QR no es un link de internet: configura la app en el celular. Se instala ODK Collect, se toca Agregar proyecto, y se escanea. El QR lleva la URL del servidor y el proyecto. Acá mostramos un facsímil educativo embebido; en el oficial a veces el QR falla o no está. El uso es ese.",
+    "Este QR es para el equipo técnico. Configura ODK Collect contra agriencuestas punto mendoza punto gov punto ar, proyecto cuatro. En Collect: Agregar proyecto y escanear. Tiene que aparecer Agricultura Mendoza.",
+  "odk-forms":
+    "Hay cinco formularios publicados: certificación de equipos, fincas y cuarteles 2026, visitas técnicas 2026, olivo encontrado y olivo a verificar.",
+  "odk-flujo":
+    "El flujo es: instalar Collect, escanear el QR, obtener formularios en blanco, completar en campo y enviar por wifi o datos. Central recibe; este tablero demo no escribe nada.",
+  "odk-tablero":
+    "Este tablero es una simulación estilo Power BI para mostrar KPIs de campo. No son envíos en vivo de Central.",
   capacitaciones:
     "Esta es la zona de capacitaciones. Hay BPA y Encargado de Finca. La inscripción en el oficial se hace por mail a direcciondeagricultura arroba mendoza punto gov punto ar.",
   "capacitacion-bpa":
@@ -121,11 +133,7 @@ export function buildSectionGuide(sectionId: string): SectionGuide | null {
     SPOKEN[sectionId] ??
     `Te traje a ${section.title}. ${"summary" in section && section.summary ? section.summary : "Es una sección del portal de la Dirección de Agricultura."}`;
 
-  const nextHint = related[0]
-    ? ` ¿Tenés alguna duda, o seguimos por ${related[0].title}?`
-    : " ¿Tenés alguna duda, o querés que avance a otra sección?";
-
-  const spoken = `${base}${nextHint}`;
+  const spoken = base;
 
   return {
     sectionId,

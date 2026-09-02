@@ -53,7 +53,10 @@ async function synthesizeSpeechOnce(
         };
 
   const controller = new AbortController();
-  const kill = setTimeout(() => controller.abort(), 8_000);
+  const kill = setTimeout(
+    () => controller.abort(),
+    quality === "narration" ? 12_000 : 8_000
+  );
   let res: Response;
   try {
     res = await fetch(
@@ -98,5 +101,6 @@ export async function synthesizeSpeech(
   text: string,
   opts: SynthOpts = {}
 ): Promise<Buffer | null> {
-  return withTimeout(synthesizeSpeechOnce(text, opts), 9_000, null);
+  const waitMs = opts.quality === "narration" ? 13_000 : 9_000;
+  return withTimeout(synthesizeSpeechOnce(text, opts), waitMs, null);
 }

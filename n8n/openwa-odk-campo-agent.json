@@ -1,0 +1,657 @@
+{
+  "name": "OpenWA - Agente Campo ODK (agentico · simulado)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odk-campo-agent",
+        "options": {}
+      },
+      "name": "1 Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        200,
+        400
+      ],
+      "webhookId": "odk-campo-agent-v1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json.body ?? $json;\nconst data = payload.data ?? {};\nconst event = payload.event ?? payload.body?.event;\nif (event === 'test' || event !== 'message.received') return [];\nif (data.isGroup === true || data.isStatusBroadcast === true || !data.chatId) return [];\nconst rawType = String(data.type ?? '').toLowerCase();\nconst isAudio = ['audio', 'voice', 'ptt'].includes(rawType);\nconst isText = rawType === 'text' || rawType === 'chat' || (!rawType && typeof data.body === 'string');\nconst isImage = ['image', 'photo'].includes(rawType);\nconst isDocument = ['document', 'file'].includes(rawType);\nconst isLocation = rawType === 'location' || Boolean(data.location || data.lat != null);\nif (!isAudio && !isText && !isImage && !isDocument && !isLocation) return [];\nconst body = typeof data.body === 'string' ? data.body.trim() : '';\nif (isText && !body) return [];\nif (data.fromMe === true) {\n  const botEcho = /^\\u200B/.test(body);\n  if (!isText || botEcho) return [];\n}\nconst loc = data.location || {};\nconst lat = loc.lat ?? loc.latitude ?? data.lat;\nconst lon = loc.lng ?? loc.lon ?? loc.longitude ?? data.lon;\nconst messageId = data.id ?? payload.idempotencyKey ?? `${data.chatId}:${Date.now()}:${body}`;\nreturn [{ json: {\n  messageId: String(messageId), chatId: data.chatId, inputType: isAudio?'audio':isImage?'image':isLocation?'location':'text',\n  messageText: isLocation?(body||'ubicación'):body, lat, lon,\n  mediaBase64: data.media?.data??'', mediaMimeType: data.media?.mimetype??'', mediaOmitted: Boolean(data.media?.omitted),\n}}];"
+      },
+      "name": "3 Normalize",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        420,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "incr",
+        "key": "={{ 'wa:dedupe:' + $json.messageId }}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "name": "4 Dedupe Redis",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        640,
+        400
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "session_raw",
+        "key": "={{ 'wa:session:' + $json.chatId }}"
+      },
+      "name": "8a Load session",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        860,
+        200
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "memory_raw",
+        "key": "={{ 'wa:memory:' + $json.chatId }}"
+      },
+      "name": "8b Load memory",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        860,
+        320
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "profile_raw",
+        "key": "={{ 'wa:profile:' + $json.chatId }}"
+      },
+      "name": "8c Load profile",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        860,
+        440
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "notes_raw",
+        "key": "={{ 'wa:notes:' + $json.chatId }}"
+      },
+      "name": "8d Load notes",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        860,
+        560
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "state_raw",
+        "key": "={{ 'wa:state:' + $json.chatId }}"
+      },
+      "name": "8e Load relevamiento",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        860,
+        680
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const base = $('3 Normalize').first().json;\nconst merged = { ...base,\n  session_raw: $('8a Load session').first().json.session_raw,\n  memory_raw: $('8b Load memory').first().json.memory_raw,\n  profile_raw: $('8c Load profile').first().json.profile_raw,\n  notes_raw: $('8d Load notes').first().json.notes_raw,\n  state_raw: $('8e Load relevamiento').first().json.state_raw,\n  input: base.messageText,\n};\nconst __schemas = (function(){ /** Constantes de dominio — compartidas por context, guardrail y executor. */\n\nconst BOT_MARK = '\\u200B';\n\nconst REDIS = {\n  dedupe: (id) => `wa:dedupe:${id}`,\n  session: (chatId) => `wa:session:${chatId}`,\n  memory: (chatId) => `wa:memory:${chatId}`,\n  profile: (chatId) => `wa:profile:${chatId}`,\n  notes: (chatId) => `wa:notes:${chatId}`,\n  state: (chatId) => `wa:state:${chatId}`,\n  buffer: (chatId) => `wa:buffer:${chatId}`,\n  handoff: (chatId) => `wa:handoff:${chatId}`,\n};\n\nconst FORMS = {\n  olivo: {\n    id: 'demo-olivo',\n    name: 'Ficha demo · Olivo en campo',\n    version: 'sim-1',\n    fields: ['departamento', 'estado', 'consociacion', 'cultivosVecinos'],\n  },\n  visita: {\n    id: 'demo-visita',\n    name: 'Ficha demo · Visita técnica',\n    version: 'sim-1',\n    fields: ['departamento', 'cultivo', 'variedad', 'estadio'],\n  },\n  finca: {\n    id: 'demo-finca',\n    name: 'Ficha demo · Finca y cuartel',\n    version: 'sim-1',\n    fields: ['departamento', 'finca', 'cultivo', 'orientacion'],\n  },\n};\n\nconst ALLOWED_ACTIONS = new Set([\n  'save_note',\n  'get_notes',\n  'update_profile',\n  'get_profile',\n  'start_relevamiento',\n  'update_relevamiento',\n  'confirm_relevamiento',\n  'cancel_relevamiento',\n  'get_current_state',\n  'reset_session',\n  'handoff_human',\n]);\n\nconst EMPTY_SESSION = {\n  turns: [],\n  lastInputAt: 0,\n  pendingBuffer: [],\n};\n\nconst EMPTY_MEMORY = {\n  summary: '',\n  facts: [],\n  updatedAt: 0,\n};\n\nconst EMPTY_PROFILE = {\n  preferences: {\n    language: 'es-AR',\n    voice: true,\n    response_mode: 'auto',\n  },\n  displayName: '',\n  updatedAt: 0,\n};\n\nconst EMPTY_NOTES = { items: [] };\n\nconst EMPTY_RELEVAMIENTO = {\n  status: 'idle',\n  formKey: '',\n  data: {},\n  hasPhoto: false,\n  geo: null,\n  startedAt: 0,\n  updatedAt: 0,\n};\n\nfunction defaultJson(raw, fallback) {\n  if (!raw) return JSON.parse(JSON.stringify(fallback));\n  try {\n    const parsed = JSON.parse(String(raw));\n    return parsed && typeof parsed === 'object' ? parsed : JSON.parse(JSON.stringify(fallback));\n  } catch {\n    return JSON.parse(JSON.stringify(fallback));\n  }\n}\n\nfunction buildPacket(form, relevamiento) {\n  return JSON.stringify(\n    {\n      simulada: true,\n      aviso: 'Ficha de demostración. No es un XForm de Central ni se envía a ningún servidor.',\n      fichaId: form.id,\n      nombre: form.name,\n      version: form.version,\n      canal: 'whatsapp-demo-agent',\n      datos: relevamiento.data,\n      foto: relevamiento.hasPhoto,\n      gps: relevamiento.geo,\n    },\n    null,\n    2\n  );\n}\n\nfunction submissionFromRelevamiento(relevamiento) {\n  const form = FORMS[relevamiento.formKey];\n  if (!form) return null;\n  const xml = buildPacket(form, relevamiento);\n  return {\n    id: `campo-${Date.now().toString(36)}`,\n    formId: form.id,\n    formName: form.name,\n    version: form.version,\n    channel: 'whatsapp-demo-agent',\n    data: { ...relevamiento.data },\n    xml,\n    hasPhoto: Boolean(relevamiento.hasPhoto),\n    geo: relevamiento.geo,\n    createdAt: Date.now(),\n    note: 'Ficha simulada vía agente conversacional. No es un formulario de Central.',\n  };\n}\n\nreturn {\n  BOT_MARK,\n  REDIS,\n  FORMS,\n  ALLOWED_ACTIONS,\n  EMPTY_SESSION,\n  EMPTY_MEMORY,\n  EMPTY_PROFILE,\n  EMPTY_NOTES,\n  EMPTY_RELEVAMIENTO,\n  defaultJson,\n  buildPacket,\n  submissionFromRelevamiento,\n};\n })();\nconst { BOT_MARK, REDIS, FORMS, ALLOWED_ACTIONS, EMPTY_SESSION, EMPTY_MEMORY, EMPTY_PROFILE, EMPTY_NOTES, EMPTY_RELEVAMIENTO, defaultJson, buildPacket, submissionFromRelevamiento } = __schemas;\n/**\n * Context Engine — fusiona sesión, memoria, perfil, notas y relevamiento.\n * Entrada n8n: $json con chatId, input, inputType, lat, lon, hasPhoto + blobs Redis.\n */\nconst DEBOUNCE_MS = 1200;\nconst MAX_TURNS = 24;\n\nfunction normalizeInput(text) {\n  return String(text || '')\n    .toLowerCase()\n    .normalize('NFD')\n    .replace(/[\\u0300-\\u036f]/g, '')\n    .replace(/[¿?¡!.,;:]/g, ' ')\n    .replace(/\\s+/g, ' ')\n    .trim();\n}\n\nfunction pushTurn(session, role, text) {\n  session.turns = Array.isArray(session.turns) ? session.turns : [];\n  session.turns.push({ role, text: String(text || '').slice(0, 2000), at: Date.now() });\n  session.turns = session.turns.slice(-MAX_TURNS);\n}\n\nfunction mergeInboundBuffer(session, input, inputType, now) {\n  session.pendingBuffer = Array.isArray(session.pendingBuffer) ? session.pendingBuffer : [];\n  if (inputType === 'text' && input) {\n    session.pendingBuffer.push({ text: input, at: now });\n  }\n  const cutoff = now - DEBOUNCE_MS;\n  session.pendingBuffer = session.pendingBuffer.filter((row) => row.at >= cutoff - 5000);\n  const recent = session.pendingBuffer.filter((row) => row.at >= cutoff);\n  const combined = recent.map((row) => row.text).join(' ').replace(/\\s+/g, ' ').trim();\n  const words = combined.split(/\\s+/).filter(Boolean);\n  const isShortFragment = words.length <= 2 && !/[.!?]$/.test(combined);\n  const shouldWait =\n    inputType === 'text' &&\n    input &&\n    isShortFragment &&\n    recent.length >= 1 &&\n    now - recent[0].at < DEBOUNCE_MS;\n  return { combined: combined || input, shouldWait, waitMs: DEBOUNCE_MS };\n}\n\nfunction buildContextPayload(json) {\n  const chatId = String(json.chatId || '').trim();\n  const input = String(json.input || json.messageText || '').trim();\n  const inputType = String(json.inputType || json.sourceType || 'text').toLowerCase();\n  const now = Date.now();\n\n  const session = defaultJson(json.session_raw, EMPTY_SESSION);\n  const memory = defaultJson(json.memory_raw, EMPTY_MEMORY);\n  const profile = defaultJson(json.profile_raw, EMPTY_PROFILE);\n  const notes = defaultJson(json.notes_raw, EMPTY_NOTES);\n  const relevamiento = defaultJson(json.state_raw, EMPTY_RELEVAMIENTO);\n\n  relevamiento.data = relevamiento.data && typeof relevamiento.data === 'object' ? relevamiento.data : {};\n  relevamiento.hasPhoto = Boolean(relevamiento.hasPhoto || json.hasPhoto);\n  if (json.geo && typeof json.geo === 'object') relevamiento.geo = json.geo;\n  if (json.lat != null && json.lon != null && !Number.isNaN(Number(json.lat))) {\n    relevamiento.geo = { lat: Number(json.lat), lon: Number(json.lon), source: 'whatsapp' };\n  }\n  if (['image', 'photo'].includes(inputType)) relevamiento.hasPhoto = true;\n\n  const { combined, shouldWait, waitMs } = mergeInboundBuffer(session, input, inputType, now);\n  if (shouldWait) {\n    session.lastInputAt = now;\n    return {\n      ok: true,\n      chatId,\n      debounce: true,\n      waitMs,\n      sessionJson: JSON.stringify(session),\n      reply: null,\n    };\n  }\n\n  const effectiveInput = combined || input;\n  if (effectiveInput || inputType !== 'text') {\n    pushTurn(session, 'user', effectiveInput || `[${inputType}]`);\n  }\n  session.lastInputAt = now;\n  session.pendingBuffer = [];\n\n  const formMeta = relevamiento.formKey ? FORMS[relevamiento.formKey] : null;\n  const recentTurns = session.turns.slice(-8).map((t) => `${t.role}: ${t.text}`).join('\\n');\n\n  return {\n    ok: true,\n    chatId,\n    debounce: false,\n    input: effectiveInput,\n    inputType,\n    normalized: normalizeInput(effectiveInput),\n    session,\n    memory,\n    profile,\n    notes,\n    relevamiento,\n    formMeta,\n    contextBlock: {\n      chatId,\n      input: effectiveInput,\n      inputType,\n      relevamiento: {\n        status: relevamiento.status,\n        formKey: relevamiento.formKey,\n        formId: formMeta?.id || '',\n        formName: formMeta?.name || '',\n        data: relevamiento.data,\n        hasPhoto: relevamiento.hasPhoto,\n        geo: relevamiento.geo,\n      },\n      profile: profile.preferences || {},\n      displayName: profile.displayName || '',\n      memorySummary: memory.summary || '',\n      memoryFacts: (memory.facts || []).slice(-12),\n      notes: (notes.items || []).slice(-8),\n      recentTurns,\n      domainRules: {\n        simulatedOnly: true,\n        noCentralWrite: true,\n        forms: Object.keys(FORMS),\n      },\n    },\n    sessionJson: JSON.stringify(session),\n    memoryJson: JSON.stringify(memory),\n    profileJson: JSON.stringify(profile),\n    notesJson: JSON.stringify(notes),\n    stateJson: JSON.stringify(relevamiento),\n  };\n}\n\n\nreturn buildContextPayload($json);\nconst result = buildContextPayload(merged);\nif (result.debounce) return [{ json: { ...merged, ...result, debounceWait: true } }];\nreturn [{ json: { ...merged, ...result } }];"
+      },
+      "name": "8 Context Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1080,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "amount": 1.2,
+        "unit": "seconds"
+      },
+      "name": "5 Debounce Wait",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1080,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "\nconst c = $json.contextBlock || {};\nreturn {\n  ...$json,\n  agentUserMessage: [\n    'CONTEXTO:',\n    JSON.stringify(c, null, 2),\n    '',\n    'Respondé SOLO con JSON según el system prompt.',\n  ].join('\\n'),\n};\n"
+      },
+      "name": "11 Prepare Agent Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1300,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://generativelanguage.googleapis.com/v1beta/models/{{ $env.GEMINI_MODEL || 'gemini-2.0-flash' }}:generateContent?key={{ $env.GEMINI_API_KEY }}",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({\n  contents: [{ role: 'user', parts: [{ text: $json.agentUserMessage }]}],\n  systemInstruction: { parts: [{ text: \"================================================================================\\n  SYSTEM PROMPT — Agente de campo ODK (WhatsApp · Demo Mendoza)\\n  Pegar en Gemini / Agente IA de n8n · responseMimeType: application/json\\n================================================================================\\n\\nSos el asistente virtual de campo de la Dirección de Agricultura de Mendoza.\\n\\nNo sos un formulario con chat. Sos un compañero de trabajo por WhatsApp: técnico de campo,\\nsecretario personal, operador de relevamientos y asistente por voz cuando hace falta.\\n\\nHablás como persona real de Mendoza: voseo, natural, directo, cálido sin ser empalagoso.\\nNunca sonás a call center, bot corporativo ni menú de opciones.\\n\\n================================================================================\\nIDENTIDAD OPERACIONAL\\n================================================================================\\n\\nCombinás estos roles según lo que pida la persona:\\n- Compañero técnico en la finca\\n- Secretario personal (notas, pendientes, recordatorios)\\n- Asistente de relevamiento (olivo, visita, finca simulados)\\n- Operador de información (estado, resumen, qué falta)\\n- Puente a humano cuando no alcanza\\n\\nFrases típicas tuyas (variá, no repitas siempre la misma):\\n\\\"Dale.\\\" · \\\"Perfecto.\\\" · \\\"Sí, lo tengo.\\\" · \\\"Anotado.\\\" · \\\"Ahí va.\\\" · \\\"Bien, entonces...\\\"\\n\\\"Quedo atento.\\\" · \\\"Cuando quieras seguimos.\\\" · \\\"Listo, eso quedó.\\\"\\n\\nNUNCA digas:\\n\\\"Estimado usuario\\\" · \\\"Seleccione una opción\\\" · \\\"Su solicitud fue procesada\\\"\\n\\\"Como asistente virtual de IA...\\\" · \\\"Según mi base de conocimiento...\\\"\\n\\n================================================================================\\nCRITERIO DE BREVEDAD (muy importante)\\n================================================================================\\n\\nNo todas las intervenciones merecen un párrafo.\\n\\n- \\\"ok\\\" / \\\"dale\\\" / \\\"👍\\\" → respuesta corta: \\\"Perfecto 👍\\\" o \\\"Dale.\\\"\\n- \\\"che estoy llegando al lote\\\" → \\\"Dale, quedo atento.\\\" (sin interrogatorio)\\n- Pregunta compleja o relevamiento → 1–3 oraciones útiles\\n- Resumen antes de confirmar → podés ser más largo pero claro\\n\\nSi no hay nada útil que agregar, no inventes relleno.\\n\\n================================================================================\\nDOMINIO — RESTRICCIONES INNEGOCIABLES\\n================================================================================\\n\\n1. Fichas SIMULADAS solamente:\\n   - demo-olivo (olivo en campo)\\n   - demo-visita (visita técnica fenología)\\n   - demo-finca (finca y cuartel)\\n\\n2. NO existe envío a ODK Central, agriencuestas.mendoza.gov.ar ni XForms reales.\\n   Nunca menciones identif_olivos_*, Feno26-* ni \\\"quedó en Central\\\".\\n\\n3. Certificación de equipos (GPS, brújula, cámara) = ODK Collect con sensores.\\n   Por WhatsApp solo simulás olivo/visita/finca conversando.\\n\\n4. NO mezcles con RUT, CUIT, SIA, trámites de productor salvo que lo pidan explícito\\n   para derivar (y ahí decís que es otro canal).\\n\\n5. Todo relevamiento confirmado es JSON demo con \\\"simulada\\\": true — decilo con naturalidad\\n   si preguntan, sin sermonear.\\n\\n================================================================================\\nMEMORIA Y CONTEXTO (te llegan en el mensaje de usuario)\\n================================================================================\\n\\nUsá lo que recibís:\\n- recentTurns: conversación reciente\\n- relevamiento: estado actual del formulario en curso\\n- notes: notas guardadas\\n- memorySummary / memoryFacts: memoria larga\\n- profile.preferences: preferencias (ej. preguntar orientación siempre, voz on/off)\\n\\nActualizá memoria con memory_patch solo cuando haya algo durable que valga recordar\\n(preferencias, hechos de campo, nombre de finca recurrente). No guardes cada \\\"ok\\\".\\n\\n================================================================================\\nHERRAMIENTAS — devolvé acciones en JSON, no simules ejecución en prosa\\n================================================================================\\n\\nTipos permitidos:\\n\\nsave_note              { \\\"type\\\":\\\"save_note\\\", \\\"text\\\":\\\"...\\\" }\\nupdate_profile         { \\\"type\\\":\\\"update_profile\\\", \\\"key\\\":\\\"finca.ask_orientation\\\", \\\"value\\\":true }\\n                       { \\\"type\\\":\\\"update_profile\\\", \\\"key\\\":\\\"voice\\\", \\\"value\\\":false }\\nstart_relevamiento     { \\\"type\\\":\\\"start_relevamiento\\\", \\\"form\\\":\\\"olivo|visita|finca\\\", \\\"data\\\":{} }\\nupdate_relevamiento    { \\\"type\\\":\\\"update_relevamiento\\\", \\\"data\\\":{...}, \\\"hasPhoto\\\":true }\\nconfirm_relevamiento   { \\\"type\\\":\\\"confirm_relevamiento\\\", \\\"userConfirmed\\\":true }\\n                       ↑ SOLO si el usuario dijo confirmo/dale mandalo/enviar/listo\\ncancel_relevamiento    { \\\"type\\\":\\\"cancel_relevamiento\\\" }\\nreset_session          { \\\"type\\\":\\\"reset_session\\\" }\\nhandoff_human          { \\\"type\\\":\\\"handoff_human\\\", \\\"reason\\\":\\\"...\\\", \\\"summary\\\":\\\"...\\\" }\\n\\nCampos por ficha:\\n- olivo: departamento, estado, consociacion, cultivosVecinos\\n- visita: departamento, cultivo, variedad, estadio\\n- finca: departamento, finca, cultivo, orientacion\\n\\nEstados olivo: Productivo, Abandonado, Puro, Consociado, Trinchera, Inculto\\nEstadios: Brotes, Floración, Cuaje, Envero, Cosecha, Dormancia, Yema\\n\\n================================================================================\\nCOMPORTAMIENTO CONVERSACIONAL\\n================================================================================\\n\\n- Una frase del usuario puede traer muchos datos: extraelos con update_relevamiento.\\n  Ej: \\\"encontré un olivo abandonado en Rivadavia al lado de vid\\\"\\n- Si falta un dato, preguntá UNA cosa por vez, como WhatsApp real.\\n- Foto o ubicación: reconocé (\\\"foto anotada\\\", \\\"gps recibido\\\") y seguí.\\n- Si piden \\\"la salto\\\" en variedad/orientación → aceptá \\\"Sin dato\\\".\\n- Preferencias: \\\"acordate de preguntarme orientación\\\" → update_profile + confirmación breve.\\n- Notas: \\\"anotame que mañana reviso Los Álamos\\\" → save_note + reply humano.\\n- Handoff: \\\"pasame con alguien\\\" → handoff_human con summary del contexto.\\n\\n================================================================================\\nVOZ\\n================================================================================\\n\\nresponse_mode:\\n- \\\"text\\\" → solo texto (default salvo que pidan voz o venga audio)\\n- \\\"text_and_voice\\\" → texto + nota de voz (cuando pidieron \\\"decime\\\", mandaron audio, o perfil voice:true)\\n\\ntyping_ms: 0–800 según complejidad (0 para acks cortos, 300–500 para procesar relevamiento)\\n\\n================================================================================\\nFORMATO DE SALIDA — OBLIGATORIO JSON PURO\\n================================================================================\\n\\nRespondé ÚNICAMENTE con un objeto JSON válido (sin markdown, sin ```):\\n\\n{\\n  \\\"reply\\\": \\\"texto para WhatsApp\\\",\\n  \\\"response_mode\\\": \\\"text\\\",\\n  \\\"typing_ms\\\": 0,\\n  \\\"silent\\\": false,\\n  \\\"actions\\\": [],\\n  \\\"memory_patch\\\": {\\n    \\\"summary\\\": \\\"opcional — max 400 chars\\\",\\n    \\\"facts\\\": [\\\"opcional\\\"]\\n  }\\n}\\n\\nEjemplo nota:\\n{\\n  \\\"reply\\\": \\\"Dale, te lo dejo anotado. Mañana revisamos Los Álamos y después vemos el olivo.\\\",\\n  \\\"response_mode\\\": \\\"text\\\",\\n  \\\"typing_ms\\\": 200,\\n  \\\"actions\\\": [\\n    { \\\"type\\\": \\\"save_note\\\", \\\"text\\\": \\\"Revisar lote Los Álamos mañana\\\" }\\n  ]\\n}\\n\\nEjemplo relevamiento:\\n{\\n  \\\"reply\\\": \\\"Tomé el olivo abandonado en Rivadavia, al lado de vid. ¿Va consociado o lo dejamos puro?\\\",\\n  \\\"response_mode\\\": \\\"text\\\",\\n  \\\"typing_ms\\\": 350,\\n  \\\"actions\\\": [\\n    { \\\"type\\\": \\\"start_relevamiento\\\", \\\"form\\\": \\\"olivo\\\", \\\"data\\\": {\\n      \\\"departamento\\\": \\\"Rivadavia\\\", \\\"estado\\\": \\\"Abandonado\\\", \\\"cultivosVecinos\\\": \\\"Vid\\\", \\\"consociacion\\\": \\\"Consociado\\\"\\n    }}\\n  ]\\n}\\n\\nEjemplo confirmación (usuario dijo \\\"confirmo\\\"):\\n{\\n  \\\"reply\\\": \\\"Listo, quedó la ficha simulada de olivo en la bandeja de la demo. No va a Central.\\\",\\n  \\\"response_mode\\\": \\\"text\\\",\\n  \\\"typing_ms\\\": 0,\\n  \\\"actions\\\": [\\n    { \\\"type\\\": \\\"confirm_relevamiento\\\", \\\"userConfirmed\\\": true }\\n  ]\\n}\\n\\n================================================================================\\nFIN DEL SYSTEM PROMPT\\n================================================================================\\n\" }]},\n  generationConfig: { temperature: 0.4, maxOutputTokens: 700, responseMimeType: 'application/json' }\n}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "name": "12 Agent Gemini",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1520,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const prev = $('11 Prepare Agent Prompt').first().json;\nconst agentRaw = $json.candidates?.[0]?.content?.parts?.[0]?.text || '';\nconst __schemas = (function(){ /** Constantes de dominio — compartidas por context, guardrail y executor. */\n\nconst BOT_MARK = '\\u200B';\n\nconst REDIS = {\n  dedupe: (id) => `wa:dedupe:${id}`,\n  session: (chatId) => `wa:session:${chatId}`,\n  memory: (chatId) => `wa:memory:${chatId}`,\n  profile: (chatId) => `wa:profile:${chatId}`,\n  notes: (chatId) => `wa:notes:${chatId}`,\n  state: (chatId) => `wa:state:${chatId}`,\n  buffer: (chatId) => `wa:buffer:${chatId}`,\n  handoff: (chatId) => `wa:handoff:${chatId}`,\n};\n\nconst FORMS = {\n  olivo: {\n    id: 'demo-olivo',\n    name: 'Ficha demo · Olivo en campo',\n    version: 'sim-1',\n    fields: ['departamento', 'estado', 'consociacion', 'cultivosVecinos'],\n  },\n  visita: {\n    id: 'demo-visita',\n    name: 'Ficha demo · Visita técnica',\n    version: 'sim-1',\n    fields: ['departamento', 'cultivo', 'variedad', 'estadio'],\n  },\n  finca: {\n    id: 'demo-finca',\n    name: 'Ficha demo · Finca y cuartel',\n    version: 'sim-1',\n    fields: ['departamento', 'finca', 'cultivo', 'orientacion'],\n  },\n};\n\nconst ALLOWED_ACTIONS = new Set([\n  'save_note',\n  'get_notes',\n  'update_profile',\n  'get_profile',\n  'start_relevamiento',\n  'update_relevamiento',\n  'confirm_relevamiento',\n  'cancel_relevamiento',\n  'get_current_state',\n  'reset_session',\n  'handoff_human',\n]);\n\nconst EMPTY_SESSION = {\n  turns: [],\n  lastInputAt: 0,\n  pendingBuffer: [],\n};\n\nconst EMPTY_MEMORY = {\n  summary: '',\n  facts: [],\n  updatedAt: 0,\n};\n\nconst EMPTY_PROFILE = {\n  preferences: {\n    language: 'es-AR',\n    voice: true,\n    response_mode: 'auto',\n  },\n  displayName: '',\n  updatedAt: 0,\n};\n\nconst EMPTY_NOTES = { items: [] };\n\nconst EMPTY_RELEVAMIENTO = {\n  status: 'idle',\n  formKey: '',\n  data: {},\n  hasPhoto: false,\n  geo: null,\n  startedAt: 0,\n  updatedAt: 0,\n};\n\nfunction defaultJson(raw, fallback) {\n  if (!raw) return JSON.parse(JSON.stringify(fallback));\n  try {\n    const parsed = JSON.parse(String(raw));\n    return parsed && typeof parsed === 'object' ? parsed : JSON.parse(JSON.stringify(fallback));\n  } catch {\n    return JSON.parse(JSON.stringify(fallback));\n  }\n}\n\nfunction buildPacket(form, relevamiento) {\n  return JSON.stringify(\n    {\n      simulada: true,\n      aviso: 'Ficha de demostración. No es un XForm de Central ni se envía a ningún servidor.',\n      fichaId: form.id,\n      nombre: form.name,\n      version: form.version,\n      canal: 'whatsapp-demo-agent',\n      datos: relevamiento.data,\n      foto: relevamiento.hasPhoto,\n      gps: relevamiento.geo,\n    },\n    null,\n    2\n  );\n}\n\nfunction submissionFromRelevamiento(relevamiento) {\n  const form = FORMS[relevamiento.formKey];\n  if (!form) return null;\n  const xml = buildPacket(form, relevamiento);\n  return {\n    id: `campo-${Date.now().toString(36)}`,\n    formId: form.id,\n    formName: form.name,\n    version: form.version,\n    channel: 'whatsapp-demo-agent',\n    data: { ...relevamiento.data },\n    xml,\n    hasPhoto: Boolean(relevamiento.hasPhoto),\n    geo: relevamiento.geo,\n    createdAt: Date.now(),\n    note: 'Ficha simulada vía agente conversacional. No es un formulario de Central.',\n  };\n}\n\nreturn {\n  BOT_MARK,\n  REDIS,\n  FORMS,\n  ALLOWED_ACTIONS,\n  EMPTY_SESSION,\n  EMPTY_MEMORY,\n  EMPTY_PROFILE,\n  EMPTY_NOTES,\n  EMPTY_RELEVAMIENTO,\n  defaultJson,\n  buildPacket,\n  submissionFromRelevamiento,\n};\n })();\nconst { BOT_MARK, REDIS, FORMS, ALLOWED_ACTIONS, EMPTY_SESSION, EMPTY_MEMORY, EMPTY_PROFILE, EMPTY_NOTES, EMPTY_RELEVAMIENTO, defaultJson, buildPacket, submissionFromRelevamiento } = __schemas;\n/**\n * Guardrail — valida salida JSON del agente antes de ejecutar acciones.\n */\nconst CONFIRM_WORDS =\n  /\\b(confirmo|confirmar|dale mandalo|manda|enviar|listo cerralo|ok confirmo)\\b/i;\n\nfunction stripMarkdownFence(text) {\n  return String(text || '')\n    .replace(/^```(?:json)?\\s*/i, '')\n    .replace(/\\s*```$/i, '')\n    .trim();\n}\n\nfunction parseAgentJson(raw) {\n  const cleaned = stripMarkdownFence(raw);\n  if (!cleaned) return { ok: false, error: 'empty_agent_output' };\n  try {\n    const parsed = JSON.parse(cleaned);\n    if (!parsed || typeof parsed !== 'object') return { ok: false, error: 'not_object' };\n    return { ok: true, agent: parsed };\n  } catch {\n    return { ok: false, error: 'invalid_json', fallbackReply: cleaned.slice(0, 500) };\n  }\n}\n\nfunction missingFields(formKey, data) {\n  const form = FORMS[formKey];\n  if (!form) return ['formKey'];\n  return form.fields.filter((key) => !String(data?.[key] || '').trim());\n}\n\nfunction validateAction(action, ctx) {\n  if (!action || typeof action !== 'object') return { ok: false, reason: 'action_invalid' };\n  const type = String(action.type || '').trim();\n  if (!ALLOWED_ACTIONS.has(type)) return { ok: false, reason: 'action_not_allowed', type };\n\n  if (type === 'save_note' && !String(action.text || '').trim()) {\n    return { ok: false, reason: 'note_empty' };\n  }\n  if (type === 'update_profile' && !action.key) {\n    return { ok: false, reason: 'profile_key_missing' };\n  }\n  if (type === 'start_relevamiento') {\n    const form = String(action.form || action.formKey || '').trim();\n    if (!FORMS[form]) return { ok: false, reason: 'unknown_form', form };\n  }\n  if (type === 'confirm_relevamiento') {\n    const rel = ctx.relevamiento || {};\n    if (rel.status !== 'confirm' && rel.status !== 'collecting') {\n      return { ok: false, reason: 'nothing_to_confirm' };\n    }\n    if (!FORMS[rel.formKey]) return { ok: false, reason: 'no_active_form' };\n    const missing = missingFields(rel.formKey, rel.data);\n    if (missing.length) return { ok: false, reason: 'missing_fields', missing };\n    const userText = String(ctx.input || '');\n    if (!CONFIRM_WORDS.test(userText)) {\n      return { ok: false, reason: 'user_did_not_confirm' };\n    }\n  }\n  if (type === 'handoff_human' && !String(action.summary || action.reason || '').trim()) {\n    return { ok: false, reason: 'handoff_needs_summary' };\n  }\n  return { ok: true, type };\n}\n\nfunction validateAgentOutput(agent, ctx) {\n  const reply = String(agent.reply || '').trim();\n  if (!reply) return { ok: false, error: 'empty_reply' };\n\n  const blocked = [\n    /agriencuestas\\.mendoza\\.gov\\.ar/i,\n    /identif_olivos/i,\n    /Feno26-/i,\n    /qued[oó] validado oficialmente/i,\n    /enviado a central/i,\n    /xform real/i,\n  ];\n  for (const pattern of blocked) {\n    if (pattern.test(reply)) return { ok: false, error: 'domain_violation', pattern: String(pattern) };\n  }\n\n  const actions = Array.isArray(agent.actions) ? agent.actions : [];\n  if (actions.length > 8) return { ok: false, error: 'too_many_actions' };\n\n  const approved = [];\n  const rejected = [];\n  for (const action of actions) {\n    const check = validateAction(action, ctx);\n    if (check.ok) approved.push(action);\n    else rejected.push({ action, ...check });\n  }\n\n  const responseMode = agent.response_mode === 'text_and_voice' ? 'text_and_voice' : 'text';\n  let typingMs = Number(agent.typing_ms);\n  if (!Number.isFinite(typingMs) || typingMs < 0) typingMs = reply.length > 120 ? 400 : 0;\n  if (typingMs > 1200) typingMs = 1200;\n\n  return {\n    ok: true,\n    reply,\n    responseMode,\n    typingMs,\n    actions: approved,\n    rejected,\n    silent: Boolean(agent.silent) || (reply.length <= 12 && /^(ok|dale|perfecto|listo|👍)/i.test(reply)),\n  };\n}\n\nfunction guardrailPipeline(agentRaw, ctx) {\n  const parsed = parseAgentJson(agentRaw);\n  if (!parsed.ok) {\n    return {\n      ok: false,\n      error: parsed.error,\n      safeReply:\n        'Uy, me trabé un segundo. ¿Me lo repetís? Si querés seguimos con el relevamiento o anoto algo.',\n    };\n  }\n  const validated = validateAgentOutput(parsed.agent, ctx);\n  if (!validated.ok) {\n    return {\n      ok: false,\n      error: validated.error,\n      safeReply:\n        'Prefiero no inventar nada. Contame de nuevo qué querés cargar o si confirmamos lo que ya tenemos.',\n    };\n  }\n  return { ok: true, ...validated, agent: parsed.agent };\n}\n\n\nconst ctx = { input: $json.input, relevamiento: $json.relevamiento || JSON.parse($json.stateJson || '{}') };\nreturn guardrailPipeline($json.agentRaw || $json.output || '', ctx);\nconst guardrail = guardrailPipeline(agentRaw, { input: prev.input, relevamiento: prev.relevamiento });\nreturn [{ json: { ...prev, agentRaw, guardrail } }];"
+      },
+      "name": "14 Guardrail",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1740,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $json;\nconst __schemas = (function(){ /** Constantes de dominio — compartidas por context, guardrail y executor. */\n\nconst BOT_MARK = '\\u200B';\n\nconst REDIS = {\n  dedupe: (id) => `wa:dedupe:${id}`,\n  session: (chatId) => `wa:session:${chatId}`,\n  memory: (chatId) => `wa:memory:${chatId}`,\n  profile: (chatId) => `wa:profile:${chatId}`,\n  notes: (chatId) => `wa:notes:${chatId}`,\n  state: (chatId) => `wa:state:${chatId}`,\n  buffer: (chatId) => `wa:buffer:${chatId}`,\n  handoff: (chatId) => `wa:handoff:${chatId}`,\n};\n\nconst FORMS = {\n  olivo: {\n    id: 'demo-olivo',\n    name: 'Ficha demo · Olivo en campo',\n    version: 'sim-1',\n    fields: ['departamento', 'estado', 'consociacion', 'cultivosVecinos'],\n  },\n  visita: {\n    id: 'demo-visita',\n    name: 'Ficha demo · Visita técnica',\n    version: 'sim-1',\n    fields: ['departamento', 'cultivo', 'variedad', 'estadio'],\n  },\n  finca: {\n    id: 'demo-finca',\n    name: 'Ficha demo · Finca y cuartel',\n    version: 'sim-1',\n    fields: ['departamento', 'finca', 'cultivo', 'orientacion'],\n  },\n};\n\nconst ALLOWED_ACTIONS = new Set([\n  'save_note',\n  'get_notes',\n  'update_profile',\n  'get_profile',\n  'start_relevamiento',\n  'update_relevamiento',\n  'confirm_relevamiento',\n  'cancel_relevamiento',\n  'get_current_state',\n  'reset_session',\n  'handoff_human',\n]);\n\nconst EMPTY_SESSION = {\n  turns: [],\n  lastInputAt: 0,\n  pendingBuffer: [],\n};\n\nconst EMPTY_MEMORY = {\n  summary: '',\n  facts: [],\n  updatedAt: 0,\n};\n\nconst EMPTY_PROFILE = {\n  preferences: {\n    language: 'es-AR',\n    voice: true,\n    response_mode: 'auto',\n  },\n  displayName: '',\n  updatedAt: 0,\n};\n\nconst EMPTY_NOTES = { items: [] };\n\nconst EMPTY_RELEVAMIENTO = {\n  status: 'idle',\n  formKey: '',\n  data: {},\n  hasPhoto: false,\n  geo: null,\n  startedAt: 0,\n  updatedAt: 0,\n};\n\nfunction defaultJson(raw, fallback) {\n  if (!raw) return JSON.parse(JSON.stringify(fallback));\n  try {\n    const parsed = JSON.parse(String(raw));\n    return parsed && typeof parsed === 'object' ? parsed : JSON.parse(JSON.stringify(fallback));\n  } catch {\n    return JSON.parse(JSON.stringify(fallback));\n  }\n}\n\nfunction buildPacket(form, relevamiento) {\n  return JSON.stringify(\n    {\n      simulada: true,\n      aviso: 'Ficha de demostración. No es un XForm de Central ni se envía a ningún servidor.',\n      fichaId: form.id,\n      nombre: form.name,\n      version: form.version,\n      canal: 'whatsapp-demo-agent',\n      datos: relevamiento.data,\n      foto: relevamiento.hasPhoto,\n      gps: relevamiento.geo,\n    },\n    null,\n    2\n  );\n}\n\nfunction submissionFromRelevamiento(relevamiento) {\n  const form = FORMS[relevamiento.formKey];\n  if (!form) return null;\n  const xml = buildPacket(form, relevamiento);\n  return {\n    id: `campo-${Date.now().toString(36)}`,\n    formId: form.id,\n    formName: form.name,\n    version: form.version,\n    channel: 'whatsapp-demo-agent',\n    data: { ...relevamiento.data },\n    xml,\n    hasPhoto: Boolean(relevamiento.hasPhoto),\n    geo: relevamiento.geo,\n    createdAt: Date.now(),\n    note: 'Ficha simulada vía agente conversacional. No es un formulario de Central.',\n  };\n}\n\nreturn {\n  BOT_MARK,\n  REDIS,\n  FORMS,\n  ALLOWED_ACTIONS,\n  EMPTY_SESSION,\n  EMPTY_MEMORY,\n  EMPTY_PROFILE,\n  EMPTY_NOTES,\n  EMPTY_RELEVAMIENTO,\n  defaultJson,\n  buildPacket,\n  submissionFromRelevamiento,\n};\n })();\nconst { BOT_MARK, REDIS, FORMS, ALLOWED_ACTIONS, EMPTY_SESSION, EMPTY_MEMORY, EMPTY_PROFILE, EMPTY_NOTES, EMPTY_RELEVAMIENTO, defaultJson, buildPacket, submissionFromRelevamiento } = __schemas;\n/**\n * Action Executor — ejecuta herramientas aprobadas por el guardrail.\n */\nfunction execActions(actions, ctx) {\n  const session = defaultJson(ctx.sessionJson, EMPTY_SESSION);\n  const memory = defaultJson(ctx.memoryJson, EMPTY_MEMORY);\n  const profile = defaultJson(ctx.profileJson, EMPTY_PROFILE);\n  const notes = defaultJson(ctx.notesJson, EMPTY_NOTES);\n  let relevamiento = defaultJson(ctx.stateJson, EMPTY_RELEVAMIENTO);\n  relevamiento.data = relevamiento.data || {};\n\n  const log = [];\n  let submission = null;\n  let handoff = null;\n  let needInbox = false;\n  let resetAll = false;\n\n  for (const action of actions || []) {\n    const type = action.type;\n    if (type === 'save_note') {\n      notes.items = Array.isArray(notes.items) ? notes.items : [];\n      notes.items.unshift({\n        id: `note-${Date.now().toString(36)}`,\n        text: String(action.text).trim(),\n        at: Date.now(),\n      });\n      notes.items = notes.items.slice(0, 50);\n      log.push('save_note');\n    }\n    if (type === 'update_profile') {\n      profile.preferences = profile.preferences || {};\n      profile.preferences[String(action.key)] = action.value;\n      if (action.displayName) profile.displayName = String(action.displayName).trim();\n      profile.updatedAt = Date.now();\n      log.push('update_profile');\n    }\n    if (type === 'start_relevamiento') {\n      const formKey = String(action.form || action.formKey);\n      relevamiento = {\n        status: 'collecting',\n        formKey,\n        data: { ...(action.data || {}) },\n        hasPhoto: Boolean(relevamiento.hasPhoto),\n        geo: relevamiento.geo || null,\n        startedAt: Date.now(),\n        updatedAt: Date.now(),\n      };\n      log.push('start_relevamiento');\n    }\n    if (type === 'update_relevamiento') {\n      if (!relevamiento.formKey && action.formKey) relevamiento.formKey = action.formKey;\n      Object.assign(relevamiento.data, action.data || {});\n      if (action.hasPhoto) relevamiento.hasPhoto = true;\n      if (action.geo) relevamiento.geo = action.geo;\n      relevamiento.status = relevamiento.status === 'idle' ? 'collecting' : relevamiento.status;\n      relevamiento.updatedAt = Date.now();\n      const form = FORMS[relevamiento.formKey];\n      if (form) {\n        const missing = form.fields.filter((k) => !String(relevamiento.data[k] || '').trim());\n        relevamiento.status = missing.length ? 'collecting' : 'confirm';\n      }\n      log.push('update_relevamiento');\n    }\n    if (type === 'confirm_relevamiento') {\n      submission = submissionFromRelevamiento(relevamiento);\n      needInbox = Boolean(submission);\n      relevamiento.status = 'completed';\n      relevamiento.updatedAt = Date.now();\n      log.push('confirm_relevamiento');\n      relevamiento = JSON.parse(JSON.stringify(EMPTY_RELEVAMIENTO));\n    }\n    if (type === 'cancel_relevamiento') {\n      relevamiento = JSON.parse(JSON.stringify(EMPTY_RELEVAMIENTO));\n      log.push('cancel_relevamiento');\n    }\n    if (type === 'reset_session') {\n      session.turns = [];\n      session.pendingBuffer = [];\n      relevamiento = JSON.parse(JSON.stringify(EMPTY_RELEVAMIENTO));\n      resetAll = true;\n      log.push('reset_session');\n    }\n    if (type === 'handoff_human') {\n      handoff = {\n        id: `handoff-${Date.now().toString(36)}`,\n        chatId: ctx.chatId,\n        reason: String(action.reason || 'user_request').trim(),\n        summary: String(action.summary || '').trim(),\n        relevamientoSnapshot: { ...relevamiento },\n        notes: (notes.items || []).slice(0, 5),\n        at: Date.now(),\n      };\n      log.push('handoff_human');\n    }\n  }\n\n  if (ctx.reply) {\n    session.turns = Array.isArray(session.turns) ? session.turns : [];\n    session.turns.push({ role: 'assistant', text: String(ctx.reply).slice(0, 2000), at: Date.now() });\n    session.turns = session.turns.slice(-24);\n  }\n\n  if (ctx.memoryPatch) {\n    if (ctx.memoryPatch.summary) memory.summary = String(ctx.memoryPatch.summary).slice(0, 1500);\n    if (Array.isArray(ctx.memoryPatch.facts)) {\n      memory.facts = [...(memory.facts || []), ...ctx.memoryPatch.facts].slice(-30);\n    }\n    memory.updatedAt = Date.now();\n  }\n\n  return {\n    ok: true,\n    log,\n    sessionJson: JSON.stringify(session),\n    memoryJson: JSON.stringify(memory),\n    profileJson: JSON.stringify(profile),\n    notesJson: JSON.stringify(notes),\n    stateJson: JSON.stringify(relevamiento),\n    submission,\n    needInbox,\n    handoff,\n    resetAll,\n  };\n}\n\n\nconst g = $json.guardrail || {};\nif (!g.ok) {\n  return { ...$json, reply: BOT_MARK + g.safeReply, needInbox: false, needHandoff: false };\n}\nconst result = execActions(g.actions, {\n  chatId: $json.chatId,\n  sessionJson: $json.sessionJson,\n  memoryJson: $json.memoryJson,\n  profileJson: $json.profileJson,\n  notesJson: $json.notesJson,\n  stateJson: $json.stateJson,\n  reply: g.reply,\n  memoryPatch: g.agent?.memory_patch,\n});\nreturn {\n  ...$json,\n  ...result,\n  reply: BOT_MARK + g.reply,\n  responseMode: g.responseMode,\n  typingMs: g.typingMs,\n  voiceReply: g.reply,\n  needHandoff: Boolean(result.handoff),\n};\nreturn [{ json: result }];"
+      },
+      "name": "15 Execute Actions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1960,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ 'wa:session:' + $json.chatId }}",
+        "value": "={{ $json.sessionJson }}",
+        "expire": true,
+        "ttl": 604800
+      },
+      "name": "16a Persist session",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2180,
+        280
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ 'wa:state:' + $json.chatId }}",
+        "value": "={{ $json.stateJson }}",
+        "expire": true,
+        "ttl": 604800
+      },
+      "name": "16b Persist state",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2180,
+        400
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ 'wa:memory:' + $json.chatId }}",
+        "value": "={{ $json.memoryJson }}",
+        "expire": true,
+        "ttl": 2592000
+      },
+      "name": "16c Persist memory",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2180,
+        520
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ 'wa:notes:' + $json.chatId }}",
+        "value": "={{ $json.notesJson }}",
+        "expire": true,
+        "ttl": 2592000
+      },
+      "name": "16d Persist notes",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2180,
+        640
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const row = $('15 Execute Actions').first().json;\nconst __schemas = (function(){ /** Constantes de dominio — compartidas por context, guardrail y executor. */\n\nconst BOT_MARK = '\\u200B';\n\nconst REDIS = {\n  dedupe: (id) => `wa:dedupe:${id}`,\n  session: (chatId) => `wa:session:${chatId}`,\n  memory: (chatId) => `wa:memory:${chatId}`,\n  profile: (chatId) => `wa:profile:${chatId}`,\n  notes: (chatId) => `wa:notes:${chatId}`,\n  state: (chatId) => `wa:state:${chatId}`,\n  buffer: (chatId) => `wa:buffer:${chatId}`,\n  handoff: (chatId) => `wa:handoff:${chatId}`,\n};\n\nconst FORMS = {\n  olivo: {\n    id: 'demo-olivo',\n    name: 'Ficha demo · Olivo en campo',\n    version: 'sim-1',\n    fields: ['departamento', 'estado', 'consociacion', 'cultivosVecinos'],\n  },\n  visita: {\n    id: 'demo-visita',\n    name: 'Ficha demo · Visita técnica',\n    version: 'sim-1',\n    fields: ['departamento', 'cultivo', 'variedad', 'estadio'],\n  },\n  finca: {\n    id: 'demo-finca',\n    name: 'Ficha demo · Finca y cuartel',\n    version: 'sim-1',\n    fields: ['departamento', 'finca', 'cultivo', 'orientacion'],\n  },\n};\n\nconst ALLOWED_ACTIONS = new Set([\n  'save_note',\n  'get_notes',\n  'update_profile',\n  'get_profile',\n  'start_relevamiento',\n  'update_relevamiento',\n  'confirm_relevamiento',\n  'cancel_relevamiento',\n  'get_current_state',\n  'reset_session',\n  'handoff_human',\n]);\n\nconst EMPTY_SESSION = {\n  turns: [],\n  lastInputAt: 0,\n  pendingBuffer: [],\n};\n\nconst EMPTY_MEMORY = {\n  summary: '',\n  facts: [],\n  updatedAt: 0,\n};\n\nconst EMPTY_PROFILE = {\n  preferences: {\n    language: 'es-AR',\n    voice: true,\n    response_mode: 'auto',\n  },\n  displayName: '',\n  updatedAt: 0,\n};\n\nconst EMPTY_NOTES = { items: [] };\n\nconst EMPTY_RELEVAMIENTO = {\n  status: 'idle',\n  formKey: '',\n  data: {},\n  hasPhoto: false,\n  geo: null,\n  startedAt: 0,\n  updatedAt: 0,\n};\n\nfunction defaultJson(raw, fallback) {\n  if (!raw) return JSON.parse(JSON.stringify(fallback));\n  try {\n    const parsed = JSON.parse(String(raw));\n    return parsed && typeof parsed === 'object' ? parsed : JSON.parse(JSON.stringify(fallback));\n  } catch {\n    return JSON.parse(JSON.stringify(fallback));\n  }\n}\n\nfunction buildPacket(form, relevamiento) {\n  return JSON.stringify(\n    {\n      simulada: true,\n      aviso: 'Ficha de demostración. No es un XForm de Central ni se envía a ningún servidor.',\n      fichaId: form.id,\n      nombre: form.name,\n      version: form.version,\n      canal: 'whatsapp-demo-agent',\n      datos: relevamiento.data,\n      foto: relevamiento.hasPhoto,\n      gps: relevamiento.geo,\n    },\n    null,\n    2\n  );\n}\n\nfunction submissionFromRelevamiento(relevamiento) {\n  const form = FORMS[relevamiento.formKey];\n  if (!form) return null;\n  const xml = buildPacket(form, relevamiento);\n  return {\n    id: `campo-${Date.now().toString(36)}`,\n    formId: form.id,\n    formName: form.name,\n    version: form.version,\n    channel: 'whatsapp-demo-agent',\n    data: { ...relevamiento.data },\n    xml,\n    hasPhoto: Boolean(relevamiento.hasPhoto),\n    geo: relevamiento.geo,\n    createdAt: Date.now(),\n    note: 'Ficha simulada vía agente conversacional. No es un formulario de Central.',\n  };\n}\n\nreturn {\n  BOT_MARK,\n  REDIS,\n  FORMS,\n  ALLOWED_ACTIONS,\n  EMPTY_SESSION,\n  EMPTY_MEMORY,\n  EMPTY_PROFILE,\n  EMPTY_NOTES,\n  EMPTY_RELEVAMIENTO,\n  defaultJson,\n  buildPacket,\n  submissionFromRelevamiento,\n};\n })();\nconst { BOT_MARK, REDIS, FORMS, ALLOWED_ACTIONS, EMPTY_SESSION, EMPTY_MEMORY, EMPTY_PROFILE, EMPTY_NOTES, EMPTY_RELEVAMIENTO, defaultJson, buildPacket, submissionFromRelevamiento } = __schemas;\n/**\n * Response Engine — timing, modo voz, anti-loop.\n */\nfunction wantsVoice(input, profile, agentMode) {\n  if (agentMode === 'text') return false;\n  if (agentMode === 'text_and_voice') return true;\n  const prefs = profile?.preferences || {};\n  if (prefs.voice === false) return false;\n  const said = String(input || '').toLowerCase();\n  return /\\b(decime|contame|hablame|por voz|mandame audio)\\b/.test(said);\n}\n\nfunction composeResponse(ctx) {\n  const reply = String(ctx.reply || '').trim();\n  const mark = reply.startsWith(BOT_MARK) ? '' : BOT_MARK;\n  let typingMs = Number(ctx.typingMs);\n  if (!Number.isFinite(typingMs)) typingMs = reply.length > 140 ? 350 : 0;\n\n  const responseMode = wantsVoice(ctx.input, ctx.profile, ctx.responseMode)\n    ? 'text_and_voice'\n    : 'text';\n\n  return {\n    ok: true,\n    chatId: ctx.chatId,\n    reply: `${mark}${reply}`,\n    voiceReply: reply.replace(/^\\u200B+/, ''),\n    responseMode,\n    typingMs: Math.min(Math.max(typingMs, 0), 1200),\n    sendText: true,\n    sendVoice: responseMode === 'text_and_voice',\n  };\n}\n\n\nconst profile = JSON.parse($json.profileJson || '{}');\nreturn {\n  ...$json,\n  ...composeResponse({\n    chatId: $json.chatId,\n    reply: $json.reply,\n    input: $json.input,\n    profile,\n    responseMode: $json.responseMode,\n    typingMs: $json.typingMs,\n  }),\n};\nreturn [{ json: { ...row, ...composeResponse({ chatId: row.chatId, reply: row.reply, input: row.input, profile: JSON.parse(row.profileJson||'{}'), responseMode: row.responseMode, typingMs: row.typingMs }) } }];"
+      },
+      "name": "18 Response Engine",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2400,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "conditions": [
+            {
+              "leftValue": "={{ $json.needInbox }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        }
+      },
+      "name": "17 Inbox?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2180,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.NEXT_PUBLIC_SITE_URL).replace(/\\/$/, '') + '/api/agent/odk-inbox' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-demo-secret",
+              "value": "={{ $env.DEMO_AGENT_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ submission: $json.submission }) }}"
+      },
+      "name": "17b POST Inbox",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        760
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.NEXT_PUBLIC_SITE_URL).replace(/\\/$/, '') + '/api/agent/campo-handoff' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-demo-secret",
+              "value": "={{ $env.DEMO_AGENT_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify($json.handoff) }}"
+      },
+      "name": "24 Handoff API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2400,
+        920
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://openwa-api:2785/api/sessions/e75b92ce-697c-4864-9c6a-5c48be1b9599/messages/send-text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ chatId: $json.chatId, text: $json.reply }) }}"
+      },
+      "name": "20 WhatsApp Text",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2620,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "HMl1Be2nj7mdMRAw",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## Agente Campo ODK v2\n\nWebhook: POST /webhook/odk-campo-agent\n\nRedis: wa:session, wa:memory, wa:profile, wa:notes, wa:state\n\nRegenerar: node n8n/sync-odk-campo-agent-workflow.mjs\n\nPrompt: n8n/prompts/campo-agent-system.txt",
+        "height": 320,
+        "width": 480
+      },
+      "name": "LEEME",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        160,
+        80
+      ]
+    }
+  ],
+  "connections": {
+    "1 Webhook": {
+      "main": [
+        [
+          {
+            "node": "3 Normalize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3 Normalize": {
+      "main": [
+        [
+          {
+            "node": "4 Dedupe Redis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4 Dedupe Redis": {
+      "main": [
+        [
+          {
+            "node": "8a Load session",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "8b Load memory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "8c Load profile",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "8d Load notes",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "8e Load relevamiento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8e Load relevamiento": {
+      "main": [
+        [
+          {
+            "node": "8 Context Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "8 Context Engine": {
+      "main": [
+        [
+          {
+            "node": "11 Prepare Agent Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "11 Prepare Agent Prompt": {
+      "main": [
+        [
+          {
+            "node": "12 Agent Gemini",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "12 Agent Gemini": {
+      "main": [
+        [
+          {
+            "node": "14 Guardrail",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "14 Guardrail": {
+      "main": [
+        [
+          {
+            "node": "15 Execute Actions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "15 Execute Actions": {
+      "main": [
+        [
+          {
+            "node": "16a Persist session",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "16b Persist state",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "16c Persist memory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "16d Persist notes",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "17 Inbox?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "16b Persist state": {
+      "main": [
+        [
+          {
+            "node": "18 Response Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "17 Inbox?": {
+      "main": [
+        [
+          {
+            "node": "17b POST Inbox",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "18 Response Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "17b POST Inbox": {
+      "main": [
+        [
+          {
+            "node": "18 Response Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "18 Response Engine": {
+      "main": [
+        [
+          {
+            "node": "20 WhatsApp Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

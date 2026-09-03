@@ -1,4 +1,4 @@
-/** Catálogo leído en solo lectura desde agriencuestas.mendoza.gov.ar (OpenRosa formList). */
+/** Catálogo de referencia (nombres leídos del formList de Central). La carga conversacional usa fichas simuladas. */
 export const ODK_ENGINEERING_SERVER_HOST = "agriencuestas.mendoza.gov.ar";
 export const ODK_ENGINEERING_PROJECT_ID = 4;
 export const ODK_ENGINEERING_PROJECT_NAME = "Agricultura Mendoza";
@@ -9,6 +9,7 @@ export const ODK_ENGINEERING_SECTIONS = [
   "odk-forms",
   "odk-flujo",
   "odk-tablero",
+  "odk-whatsapp",
 ] as const;
 
 export type OdkEngineeringSection = (typeof ODK_ENGINEERING_SECTIONS)[number];
@@ -88,6 +89,30 @@ export const ODK_OFFICIAL_FORMS = [
     purpose:
       "Verificación de un olivar ya señalado: confirma o corrige estado, consociación e inculto.",
     states: ["Productivo", "Abandonado", "Inculto", "Puro", "Consociado", "Trinchera"],
+  },
+] as const;
+
+export const ODK_SIMULATED_CAMPO_FORMS = [
+  {
+    id: "demo-olivo",
+    name: "Ficha demo · Olivo en campo",
+    version: "sim-1",
+    area: "Olivo",
+    purpose: "Alta conversacional simulada: estado, consociación y cultivos vecinos.",
+  },
+  {
+    id: "demo-visita",
+    name: "Ficha demo · Visita técnica",
+    version: "sim-1",
+    area: "Fenología",
+    purpose: "Visita simulada: cultivo, variedad, estadio fenológico.",
+  },
+  {
+    id: "demo-finca",
+    name: "Ficha demo · Finca y cuartel",
+    version: "sim-1",
+    area: "Fenología",
+    purpose: "Alta simulada de finca, cuartel, cultivo y orientación.",
   },
 ] as const;
 

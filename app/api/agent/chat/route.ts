@@ -63,6 +63,11 @@ import {
 import { correctSpeechTranscript } from "@/lib/stt-correct";
 import type { AgentEvent } from "@/lib/types";
 import {
+  campoSpoken,
+  wantsCampoCollector,
+  wantsOdkWhatsApp,
+} from "@/lib/whatsapp-odk";
+import {
   buildWhatsAppRutUrl,
   wantsRutDemoWizard,
   wantsRutExplainOnly,
@@ -442,6 +447,16 @@ async function handleChat(req: NextRequest) {
       "Dale, te recorro ingeniería: el tablero, el QR de Collect, el flujo de campo y los cinco formularios. Si querés frenarlo, decime parar demo.";
     appendTurn(sessionId, "assistant", spoken);
     return withVoice(spoken, { via: "local", startTour: "engineering" });
+  }
+
+  if (wantsOdkWhatsApp(text) || (engineeringMode && wantsCampoCollector(text))) {
+    const spoken = campoSpoken(false);
+    appendTurn(sessionId, "assistant", spoken);
+    const event = buildEvent(sessionId, "navigate", "odk-whatsapp", {
+      openLink: false,
+      click: true,
+    });
+    return withVoice(spoken, { via: "local", event, action: "navigate" });
   }
 
   if (wantsGuidedTour(text)) {

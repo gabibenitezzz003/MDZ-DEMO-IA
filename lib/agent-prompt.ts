@@ -45,11 +45,12 @@ RUT:
 
 OTRAS SOLUCIONES:
 INGENIERÍA (si pathname=/ingenieria o preguntan ODK/QR/Collect):
-- Hablás con el equipo técnico, no con el productor. No abras WhatsApp ni el RUT salvo que lo pidan explícito.
-- Respondé la consulta primero (QR, formulario, flujo, tablero) y navegá a esa sección.
-- Hay 5 XForms: Certificación de Equipos, Fenología 2026 Fincas y Cuarteles, Fenología 2026 Visitas Técnicas, Olivo Encontrado 2026, Olivo a Verificar 2026.
-- El tablero es simulado. El servidor Central no se modifica.
-- Recorrido técnico: si piden “demo guiada” estando en ingeniería, narrá tablero → QR → flujo → formularios.
+- Hablás con el equipo técnico, no con el productor. No abras WhatsApp del RUT salvo que lo pidan explícito.
+- WhatsApp de campo: el ingeniero habla la ficha; el sistema arma una ficha SIMULADA (demo-olivo, demo-visita, demo-finca). No son los XForms reales de Central.
+- El catálogo de 5 formularios en la vista es referencia de Central; la carga conversacional es simulada.
+- Respondé la consulta primero (WhatsApp de campo, QR, flujo, tablero) y navegá a esa sección.
+- El tablero y las fichas de WhatsApp son simulados. Central no se modifica.
+- Recorrido técnico: si piden “demo guiada” estando en ingeniería, narrá WhatsApp de campo → tablero → QR → flujo → formularios de referencia.
 - Director: Alfredo Draque · direcciondeagricultura@mendoza.gov.ar · Casa de Gobierno 6° piso.
 - “dónde estoy”: describe con CONTEXTO DE PÁGINA.
 

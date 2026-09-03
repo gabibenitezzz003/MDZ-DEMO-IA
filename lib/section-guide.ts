@@ -18,11 +18,12 @@ const RELATED: Record<string, string[]> = {
   "cinturon-verde": ["horticultura", "precios", "ajo"],
   rut: ["tramites", "normativa"],
   tramites: ["rut", "normativa"],
-  ingenieria: ["odk-collect", "odk-forms", "odk-tablero"],
+  ingenieria: ["odk-whatsapp", "odk-collect", "odk-forms", "odk-tablero"],
   "odk-collect": ["odk-forms", "odk-flujo", "odk-tablero"],
   "odk-forms": ["odk-collect", "odk-tablero", "fenologia"],
   "odk-flujo": ["odk-collect", "odk-forms"],
   "odk-tablero": ["odk-forms", "odk-collect"],
+  "odk-whatsapp": ["odk-forms", "odk-flujo", "odk-tablero"],
   "monitoreo-heladas": ["agrometeorologia", "estaciones", "radar"],
   agrometeorologia: ["estaciones", "radar", "eventos-meteo"],
   precios: ["horticultura", "fruticultura", "cinturon-verde"],
@@ -106,6 +107,8 @@ const SPOKEN: Record<string, string> = {
     "El flujo es: instalar Collect, escanear el QR, obtener formularios en blanco, completar en campo y enviar por wifi o datos. Central recibe; este tablero demo no escribe nada.",
   "odk-tablero":
     "Este tablero es una simulación estilo Power BI para mostrar KPIs de campo. No son envíos en vivo de Central.",
+  "odk-whatsapp":
+    "Este es el diferencial: el ingeniero habla por WhatsApp y el sistema arma una ficha simulada. La bandeja muestra el paquete de demo. No usamos los XForms reales.",
   capacitaciones:
     "Esta es la zona de capacitaciones. Hay BPA y Encargado de Finca. La inscripción en el oficial se hace por mail a direcciondeagricultura arroba mendoza punto gov punto ar.",
   "capacitacion-bpa":

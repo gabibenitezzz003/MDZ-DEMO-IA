@@ -72,6 +72,7 @@ describe("engineering voice QA", () => {
     const beats = buildEngineeringTourBeats();
     expect(beats.map((b) => b.target)).toEqual([
       "ingenieria",
+      "odk-whatsapp",
       "odk-tablero",
       "odk-collect",
       "odk-flujo",

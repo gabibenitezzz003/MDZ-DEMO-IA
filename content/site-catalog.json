@@ -478,6 +478,13 @@
       "keywords": ["ingenieria", "ingeniería", "odk central", "agriencuestas"]
     },
     {
+      "id": "odk-whatsapp",
+      "title": "WhatsApp de campo",
+      "group": "ingenieria",
+      "summary": "El ingeniero habla por WhatsApp y se arma una ficha simulada. No usa los XForms reales ni escribe en Central.",
+      "keywords": ["whatsapp campo", "cargar olivo", "visita por chat", "xform conversacional"]
+    },
+    {
       "id": "odk-forms",
       "title": "Formularios ODK",
       "group": "ingenieria",

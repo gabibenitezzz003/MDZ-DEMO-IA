@@ -215,12 +215,12 @@ const PRODUCER_SUGGESTIONS = [
 ];
 
 const ENGINEERING_SUGGESTIONS = [
+  "Cargar olivo por WhatsApp",
   "Demo guiada",
   "Qué es el QR",
   "Qué formularios hay",
   "Cómo es el flujo",
   "Mostrame el tablero",
-  "Certificación de equipos",
   "Fenología 2026",
   "Dónde estoy",
 ];

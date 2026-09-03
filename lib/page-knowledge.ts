@@ -75,6 +75,13 @@ const EXTRA_ALIASES: Record<string, string[]> = {
   ingenieria: ["ingenieria", "odk central", "agriencuestas"],
   "odk-tablero": ["tablero odk", "power bi"],
   "odk-forms": ["formularios odk", "xform"],
+  "odk-whatsapp": [
+    "whatsapp campo",
+    "cargar olivo",
+    "olivo por whatsapp",
+    "visita por whatsapp",
+    "formulario por chat",
+  ],
   "manejo-hidrico": ["hidrico", "agua", "riego", "manejo hidrico"],
   "economia-regional": ["economia", "economia regional"],
   fruticultura: ["fruticultura", "fruta", "frutales"],

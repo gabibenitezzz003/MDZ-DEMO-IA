@@ -1,0 +1,555 @@
+{
+  "name": "OpenWA - WhatsApp de campo ODK (simulado)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "odk-campo",
+        "options": {}
+      },
+      "id": "campo-webhook-001",
+      "name": "Webhook OpenWA Campo",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ],
+      "webhookId": "odk-campo-demo-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json.body ?? $json;\nconst data = payload.data ?? {};\nconst event = payload.event ?? payload.body?.event;\n\nif (event === 'test' || event !== 'message.received') return [];\nif (data.isGroup === true || data.isStatusBroadcast === true || !data.chatId) return [];\n\nconst rawType = String(data.type ?? '').toLowerCase();\nconst isAudio = ['audio', 'voice', 'ptt'].includes(rawType);\nconst isText = rawType === 'text' || rawType === 'chat' || (!rawType && typeof data.body === 'string');\nconst isImage = ['image', 'photo'].includes(rawType);\nconst isDocument = ['document', 'file'].includes(rawType);\nconst isLocation = rawType === 'location' || Boolean(data.location || data.lat != null);\nif (!isAudio && !isText && !isImage && !isDocument && !isLocation) return [];\n\nconst body = typeof data.body === 'string' ? data.body.trim() : '';\nif (isText && !body) return [];\n\nif (data.fromMe === true) {\n  const botEcho = /^\\u200B/.test(body);\n  if (!isText || botEcho) return [];\n}\n\nconst loc = data.location || {};\nconst lat = loc.lat ?? loc.latitude ?? data.lat ?? data.latitude;\nconst lon = loc.lng ?? loc.lon ?? loc.longitude ?? data.lon ?? data.longitude;\n\nconst messageId =\n  data.id ??\n  payload.idempotencyKey ??\n  payload.deliveryId ??\n  `${data.chatId}:${data.timestamp ?? Date.now()}:${body}`;\n\nreturn [{\n  json: {\n    messageId: String(messageId),\n    chatId: data.chatId,\n    from: data.from ?? data.chatId,\n    inputType: isAudio ? 'audio' : isImage ? 'image' : isDocument ? 'document' : isLocation ? 'location' : 'text',\n    messageText: isLocation ? (body || 'ubicación') : body,\n    lat,\n    lon,\n    mediaBase64: data.media?.data ?? '',\n    mediaMimeType: data.media?.mimetype ?? data.mimetype ?? '',\n    mediaFileName: data.media?.filename ?? data.filename ?? '',\n    mediaUrl: data.media?.url ?? '',\n    mediaOmitted: Boolean(data.media?.omitted),\n    mediaSizeBytes: data.media?.sizeBytes ?? null,\n    timestamp: data.timestamp ?? null,\n    sessionId: payload.sessionId ?? null,\n    fromMe: Boolean(data.fromMe),\n  },\n}];"
+      },
+      "id": "campo-normalize-001",
+      "name": "Normalizar entrada",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "incr",
+        "key": "={{ 'wa:dedupe:' + $json.messageId }}",
+        "expire": true,
+        "ttl": 86400
+      },
+      "id": "campo-redis-dedupe-001",
+      "name": "Redis - Deduplicar webhook",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        300
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "campo-first-delivery",
+              "leftValue": "={{ Number(Object.values($json)[0] ?? 0) }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "campo-if-first-001",
+      "name": "¿Primera entrega?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1340,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "m1",
+              "name": "messageId",
+              "value": "={{ $('Normalizar entrada').first().json.messageId }}",
+              "type": "string"
+            },
+            {
+              "id": "m2",
+              "name": "chatId",
+              "value": "={{ $('Normalizar entrada').first().json.chatId }}",
+              "type": "string"
+            },
+            {
+              "id": "m3",
+              "name": "inputType",
+              "value": "={{ $('Normalizar entrada').first().json.inputType }}",
+              "type": "string"
+            },
+            {
+              "id": "m4",
+              "name": "messageText",
+              "value": "={{ $('Normalizar entrada').first().json.messageText }}",
+              "type": "string"
+            },
+            {
+              "id": "m5",
+              "name": "lat",
+              "value": "={{ $('Normalizar entrada').first().json.lat }}",
+              "type": "number"
+            },
+            {
+              "id": "m6",
+              "name": "lon",
+              "value": "={{ $('Normalizar entrada').first().json.lon }}",
+              "type": "number"
+            },
+            {
+              "id": "m7",
+              "name": "mediaBase64",
+              "value": "={{ $('Normalizar entrada').first().json.mediaBase64 }}",
+              "type": "string"
+            },
+            {
+              "id": "m8",
+              "name": "mediaOmitted",
+              "value": "={{ $('Normalizar entrada').first().json.mediaOmitted }}",
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "campo-restore-001",
+      "name": "Restaurar mensaje",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1560,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "propertyName": "state_raw",
+        "key": "={{ 'odk:state:' + $json.chatId }}",
+        "keyType": "string",
+        "options": {
+          "dotNotation": false
+        }
+      },
+      "id": "campo-redis-get-001",
+      "name": "Redis - Recuperar estado ODK",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        1780,
+        280
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "campo-is-audio",
+              "leftValue": "={{ $json.inputType }}",
+              "rightValue": "audio",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "campo-if-audio-001",
+      "name": "¿Es audio?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2000,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    ...$json,\n    input: $json.messageText,\n    sourceType: $json.inputType,\n    state_raw: $('Redis - Recuperar estado ODK').first().json.state_raw ?? '',\n  },\n}];"
+      },
+      "id": "campo-prepare-text-001",
+      "name": "Preparar entrada desde texto",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        380
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    ...$('Restaurar mensaje').first().json,\n    input: $json.text ?? $json.transcript ?? $json.messageText ?? '',\n    sourceType: 'audio',\n    state_raw: $('Redis - Recuperar estado ODK').first().json.state_raw ?? '',\n  },\n}];"
+      },
+      "id": "campo-prepare-audio-001",
+      "name": "Preparar entrada desde audio",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2220,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const chatId = String($json.chatId || '').trim();\nconst input = String($json.input || $json.messageText || '').trim();\nconst inputType = String($json.inputType || $json.sourceType || 'text').toLowerCase();\nconst latRaw = $json.lat ?? $json.latitude;\nconst lonRaw = $json.lon ?? $json.longitude;\nconst latIn =\n  latRaw === undefined || latRaw === null || latRaw === '' ? NaN : Number(latRaw);\nconst lonIn =\n  lonRaw === undefined || lonRaw === null || lonRaw === '' ? NaN : Number(lonRaw);\nconst hasMedia = ['image', 'photo', 'document', 'file'].includes(inputType);\nconst hasCoords =\n  Number.isFinite(latIn) &&\n  Number.isFinite(lonIn) &&\n  Math.abs(latIn) <= 90 &&\n  Math.abs(lonIn) <= 180;\nconst hasLocation = inputType === 'location' || hasCoords;\n\nconst normalized = input\n  .toLowerCase()\n  .normalize('NFD')\n  .replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[¿?¡!.,;:]/g, ' ')\n  .replace(/\\s+/g, ' ')\n  .trim();\n\nconst BOT_MARK = '\\u200B';\nconst FORMS = {\n  olivo: {\n    id: 'demo-olivo',\n    name: 'Ficha demo · Olivo en campo',\n    version: 'sim-1',\n    fields: ['departamento', 'estado', 'consociacion', 'cultivosVecinos'],\n  },\n  visita: {\n    id: 'demo-visita',\n    name: 'Ficha demo · Visita técnica',\n    version: 'sim-1',\n    fields: ['departamento', 'cultivo', 'variedad', 'estadio'],\n  },\n  fincas: {\n    id: 'demo-finca',\n    name: 'Ficha demo · Finca y cuartel',\n    version: 'sim-1',\n    fields: ['departamento', 'finca', 'cultivo', 'orientacion'],\n  },\n};\n\nconst EMPTY_STATE = {\n  status: 'idle',\n  formKey: '',\n  data: {},\n  hasPhoto: false,\n  geo: null,\n  updatedAt: 0,\n};\n\nlet state;\ntry {\n  const raw = $json.state_raw || $json.stateJson || '';\n  state = raw ? JSON.parse(String(raw)) : JSON.parse(JSON.stringify(EMPTY_STATE));\n} catch {\n  state = JSON.parse(JSON.stringify(EMPTY_STATE));\n}\nstate.data = state.data && typeof state.data === 'object' ? state.data : {};\nstate.hasPhoto = Boolean(state.hasPhoto);\nstate.geo = state.geo && typeof state.geo === 'object' ? state.geo : null;\nstate.status = state.status || 'idle';\nstate.formKey = state.formKey || '';\n\nconst DEPTOS = [\n  ['guaymallen', 'Guaymallén'],\n  ['maipu', 'Maipú'],\n  ['lujan', 'Luján de Cuyo'],\n  ['san martin', 'San Martín'],\n  ['junin', 'Junín'],\n  ['rivadavia', 'Rivadavia'],\n  ['tunuyan', 'Tunuyán'],\n  ['tupungato', 'Tupungato'],\n  ['san carlos', 'San Carlos'],\n  ['lavalle', 'Lavalle'],\n  ['las heras', 'Las Heras'],\n  ['godoy cruz', 'Godoy Cruz'],\n  ['capital', 'Capital'],\n  ['mendoza capital', 'Capital'],\n  ['malargue', 'Malargüe'],\n  ['san rafael', 'San Rafael'],\n  ['general alveolar', 'General Alvear'],\n  ['alvear', 'General Alvear'],\n];\n\nconst ESTADOS = [\n  ['abandonado', 'Abandonado'],\n  ['inculto', 'Inculto'],\n  ['productivo', 'Productivo'],\n  ['trinchera', 'Trinchera'],\n  ['consociado', 'Consociado'],\n  ['puro', 'Puro'],\n];\n\nconst STAGES = [\n  ['floracion', 'Floración'],\n  ['brote', 'Brotes'],\n  ['yema', 'Yema'],\n  ['cuaje', 'Cuaje'],\n  ['envero', 'Envero'],\n  ['cosecha', 'Cosecha'],\n  ['dormancia', 'Dormancia'],\n];\n\nconst CROPS = [\n  ['ciruela industria', 'Ciruela industria'],\n  ['ciruelo japones', 'Ciruelo japonés'],\n  ['ciruela', 'Ciruela industria'],\n  ['duraznero industria', 'Duraznero industria'],\n  ['duraznero en fresco', 'Duraznero en fresco'],\n  ['durazno', 'Duraznero industria'],\n  ['almendro', 'Almendro'],\n  ['almendra', 'Almendro'],\n  ['nogal', 'Nogal'],\n  ['nuez', 'Nogal'],\n  ['cerezo', 'Cerezo'],\n  ['cereza', 'Cerezo'],\n  ['olivo', 'Olivo'],\n  ['oliva', 'Olivo'],\n  ['vid', 'Vid'],\n  ['uva', 'Vid'],\n  ['pistacho', 'Pistacho'],\n];\n\nfunction pickLabel(pairs, text) {\n  for (const [needle, label] of pairs) {\n    if (text.includes(needle)) return label;\n  }\n  return '';\n}\n\nfunction detectForm(text) {\n  if (/(verificar olivo|olivo a verificar)/.test(text)) return 'olivo';\n  if (/(olivo|oliva|olivar)/.test(text)) return 'olivo';\n  if (/(visita tecnica|\\bvisita\\b|visitas|estadio|fenolog|floracion|cuaje|envero)/.test(text))\n    return 'visita';\n  if (/(finca|cuartel)/.test(text)) return 'fincas';\n  if (/(certific|equipo|brujula|teledetec)/.test(text)) return 'equipos';\n  return '';\n}\n\nfunction harvest(text) {\n  const found = {};\n  const depto = pickLabel(DEPTOS, text);\n  if (depto) found.departamento = depto;\n  const estado = pickLabel(ESTADOS, text);\n  if (estado) found.estado = estado;\n  if (/consocia/.test(text) || estado === 'Consociado') found.consociacion = 'Consociado';\n  if (estado === 'Puro' || /\\bpuro\\b/.test(text)) found.consociacion = found.consociacion || 'Puro';\n  const crop = pickLabel(CROPS, text);\n  if (crop) {\n    if (state.formKey === 'olivo' || detectForm(text) === 'olivo') found.cultivosVecinos = crop;\n    else found.cultivo = crop;\n  }\n  const vecino = text.match(/al lado de ([a-zñ ]{3,24})|junto a ([a-zñ ]{3,24})|con ([a-zñ ]{3,18}) al lado/);\n  if (vecino) {\n    const raw = (vecino[1] || vecino[2] || vecino[3] || '').trim();\n    const mapped = pickLabel(CROPS, raw) || raw;\n    if (mapped) found.cultivosVecinos = mapped.replace(/\\b\\w/g, (c) => c.toUpperCase());\n  }\n  const variedad = text.match(/variedad(?:\\s+es)?\\s+([a-z0-9 -]{2,30})/);\n  if (variedad) found.variedad = variedad[1].trim();\n  const estadioNamed = text.match(/estadio(?:\\s+es)?\\s+([a-z0-9 -]{2,40})/);\n  const estadio = pickLabel(STAGES, text) || (estadioNamed ? estadioNamed[1].trim() : '');\n  if (estadio) found.estadio = estadio;\n  const finca = text.match(/finca(?:\\s+se llama)?\\s+([a-z0-9]+(?:\\s+[a-z0-9]+){0,3})/);\n  if (finca && !/fincas y/.test(text)) found.finca = finca[1].trim();\n  const ori = text.match(/orientaci[oó]n(?:\\s+es)?\\s+(norte|sur|este|oeste|ne|no|se|so)/);\n  if (ori) found.orientacion = ori[1].toUpperCase();\n  const coords = text.match(/(-?\\d{1,3}\\.\\d+)\\s*[,; ]\\s*(-?\\d{1,3}\\.\\d+)/);\n  if (coords) {\n    const lat = Number(coords[1]);\n    const lon = Number(coords[2]);\n    if (Math.abs(lat) <= 90 && Math.abs(lon) <= 180) {\n      state.geo = { lat, lon, source: 'text' };\n    }\n  }\n  if (found.cultivosVecinos && !found.consociacion) found.consociacion = 'Consociado';\n  return found;\n}\n\nfunction applyHarvest(found) {\n  for (const [key, value] of Object.entries(found)) {\n    if (value && !state.data[key]) state.data[key] = value;\n  }\n}\n\nfunction formMeta() {\n  return FORMS[state.formKey] || null;\n}\n\nfunction missingFields() {\n  const form = formMeta();\n  if (!form) return [];\n  return form.fields.filter((key) => !String(state.data[key] || '').trim());\n}\n\nfunction promptFor(field) {\n  const prompts = {\n    departamento: '¿En qué departamento lo viste? Rivadavia, Junín, Tunuyán…',\n    estado: '¿Cómo está? Productivo, abandonado, puro, consociado o en trinchera.',\n    consociacion: '¿Va solo (puro) o consociado con otro cultivo?',\n    cultivosVecinos: '¿Qué hay al lado? Vid, ciruela, durazno…',\n    cultivo: '¿Qué cultivo estás visitando?',\n    variedad: '¿Qué variedad? Si no la tenés a mano, decime “la salto”.',\n    estadio: '¿Qué estadio ves? Brotes, floración, cuaje, envero…',\n    finca: '¿Cómo se llama la finca?',\n    orientacion: '¿Orientación del cuartel? Norte, sur, este u oeste.',\n  };\n  return prompts[field] || 'Contame un poco más.';\n}\n\nfunction summaryLines() {\n  const form = formMeta();\n  const rows = Object.entries(state.data).filter(([, value]) => value);\n  const extra = [];\n  if (state.hasPhoto) extra.push('foto: recibida');\n  if (state.geo) extra.push(`gps: ${state.geo.lat.toFixed(5)}, ${state.geo.lon.toFixed(5)}`);\n  return `${form ? form.name : 'Formulario'} · ${rows\n    .map(([key, value]) => `${key}: ${value}`)\n    .concat(extra)\n    .join(' · ')}`;\n}\n\nfunction buildPacket() {\n  const form = formMeta();\n  if (!form) return '';\n  return JSON.stringify(\n    {\n      simulada: true,\n      aviso: 'Ficha de demostración. No es un XForm de Central ni se envía a ningún servidor.',\n      fichaId: form.id,\n      nombre: form.name,\n      version: form.version,\n      canal: 'whatsapp-demo',\n      datos: state.data,\n      foto: state.hasPhoto,\n      gps: state.geo,\n    },\n    null,\n    2\n  );\n}\n\nfunction save(reply, extra) {\n  state.updatedAt = Date.now();\n  return {\n    ok: true,\n    chatId,\n    reply: `${BOT_MARK}${reply}`,\n    deterministicReply: reply,\n    stateJson: JSON.stringify(state),\n    formKey: state.formKey || '',\n    formId: formMeta()?.id || '',\n    status: state.status,\n    data: state.data,\n    hasPhoto: state.hasPhoto,\n    geo: state.geo,\n    allowAiOverride: true,\n    submission: extra && extra.submission ? extra.submission : null,\n    needInbox: Boolean(extra && extra.submission),\n  };\n}\n\nfunction startForm(formKey, opener) {\n  state.formKey = formKey;\n  state.status = 'collecting';\n  applyHarvest(harvest(normalized));\n  if (hasMedia) state.hasPhoto = true;\n  if (hasCoords) state.geo = { lat: latIn, lon: lonIn, source: 'whatsapp' };\n  const missing = missingFields();\n  if (!missing.length) {\n    state.status = 'confirm';\n    return save(\n      `${opener} Ya tengo esto: ${summaryLines()}. ¿Confirmamos el paquete o corregís algo?`\n    );\n  }\n  return save(`${opener} ${promptFor(missing[0])}`);\n}\n\nif (/(cancelar|salir|reiniciar|nuevo relevamiento|otra ficha)/.test(normalized)) {\n  state = JSON.parse(JSON.stringify(EMPTY_STATE));\n  return [\n    {\n      json: save(\n        'Listo, dejamos esa ficha. ¿Olivo encontrado, visita técnica o finca y cuartel?'\n      ),\n    },\n  ];\n}\n\nif (/(certific|equipo|brujula|teledetec)/.test(normalized) && !state.formKey) {\n  return [\n    {\n      json: save(\n        'Eso en la vida real pide sensores del celular. En esta demo te armo una ficha simulada de olivo o de visita, conversando. ¿Cuál cargamos?'\n      ),\n    },\n  ];\n}\n\nif (state.status === 'idle' || !state.formKey) {\n  const formKey = detectForm(normalized);\n  if (formKey === 'equipos') {\n    return [\n      {\n        json: save(\n          'Eso pide sensores. Por WhatsApp te armo una ficha simulada de olivo o de visita: hablás como en el campo. ¿Olivo o visita?'\n        ),\n      },\n    ];\n  }\n  if (formKey) {\n    const openers = {\n      olivo: 'Dale, ficha simulada de olivo.',\n      visita: 'Dale, ficha simulada de visita.',\n      fincas: 'Dale, ficha simulada de finca.',\n    };\n    return [{ json: startForm(formKey, openers[formKey]) }];\n  }\n  if (/(hola|buenas|como estas|que haces|ayuda|campo|formulario)/.test(normalized)) {\n    return [\n      {\n        json: save(\n          'Acá no rellenás casilleros. Contame como si estuvieras en la finca: “encontré un olivo abandonado en Rivadavia, al lado de vid” o “visita de ciruela en floración en Tunuyán”. Yo armo el paquete. Foto y ubicación si las tenés.'\n        ),\n      },\n    ];\n  }\n  return [\n    {\n      json: save(\n        'No te entendí el formulario. Decime olivo encontrado, visita técnica o finca y cuartel. Una frase suelta alcanza.'\n      ),\n    },\n  ];\n}\n\napplyHarvest(harvest(normalized));\nif (hasMedia) state.hasPhoto = true;\nif (hasCoords) state.geo = { lat: latIn, lon: lonIn, source: 'whatsapp' };\n\nif (state.status === 'confirm') {\n  if (/(confirmo|confirmar|\\bsi\\b|\\bdale\\b|enviar|manda|\\blisto\\b|\\bok\\b|okay)/.test(normalized)) {\n    const form = formMeta();\n    const xml = buildPacket();\n    const submission = {\n      id: `campo-${Date.now().toString(36)}`,\n      formId: form.id,\n      formName: form.name,\n      version: form.version,\n      channel: 'whatsapp-demo',\n      data: { ...state.data },\n      xml,\n      hasPhoto: state.hasPhoto,\n      geo: state.geo,\n      createdAt: Date.now(),\n      note: 'Ficha simulada de demostración. No es un formulario de Central.',\n    };\n    state.status = 'completed';\n    const reply = save(\n      `Ficha simulada lista: ${form.name}. Quedó en la bandeja de la demo. No es el XForm real ni se mandó a ningún servidor. Si querés otra, decime “nuevo relevamiento”.`,\n      { submission }\n    );\n    state = JSON.parse(JSON.stringify(EMPTY_STATE));\n    reply.stateJson = JSON.stringify(state);\n    reply.status = 'completed';\n    return [{ json: reply }];\n  }\n  if (/(no|correg|cambia|modific)/.test(normalized)) {\n    state.status = 'collecting';\n    return [{ json: save('Decime qué cambio. Por ejemplo: “el departamento es Junín”.') }];\n  }\n  if (hasMedia) state.hasPhoto = true;\n  if (hasCoords) state.geo = { lat: latIn, lon: lonIn, source: 'whatsapp' };\n  return [\n    {\n      json: save(\n        `Quedó así: ${summaryLines()}. Respondé “confirmo” y lo dejo en la bandeja, o decime el dato a corregir.`\n      ),\n    },\n  ];\n}\n\nif (/(la salto|saltear|despues|no la tengo|sin variedad)/.test(normalized)) {\n  const missing = missingFields();\n  if (missing[0] === 'variedad') state.data.variedad = 'Sin dato';\n  if (missing[0] === 'cultivosVecinos') state.data.cultivosVecinos = 'Sin dato';\n  if (missing[0] === 'orientacion') state.data.orientacion = 'Sin dato';\n}\n\nconst missing = missingFields();\nif (!missing.length) {\n  state.status = 'confirm';\n  const extras = [];\n  if (!state.hasPhoto) extras.push('Si tenés una foto, mandala.');\n  if (!state.geo) extras.push('Si podés, compartí la ubicación.');\n  return [\n    {\n      json: save(\n        `Anoté esto: ${summaryLines()}. ${extras.join(' ')} ¿Confirmamos el envío?`\n      ),\n    },\n  ];\n}\n\nif (hasMedia) {\n  return [\n    {\n      json: save(`Foto anotada. ${promptFor(missing[0])}`),\n    },\n  ];\n}\nif (hasLocation) {\n  return [\n    {\n      json: save(`Ubicación anotada. ${promptFor(missing[0])}`),\n    },\n  ];\n}\n\nreturn [{ json: save(`Bien. ${promptFor(missing[0])}`) }];\n"
+      },
+      "id": "campo-responder-001",
+      "name": "Respuesta ODK campo",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2440,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ 'odk:state:' + $('Respuesta ODK campo').first().json.chatId }}",
+        "value": "={{ $('Respuesta ODK campo').first().json.stateJson }}",
+        "keyType": "string",
+        "expire": true,
+        "ttl": 604800
+      },
+      "id": "campo-redis-set-001",
+      "name": "Redis - Guardar estado ODK",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        2660,
+        280
+      ],
+      "credentials": {
+        "redis": {
+          "id": "513PqFuygiUf57hH",
+          "name": "Redis account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "campo-need-inbox",
+              "leftValue": "={{ $('Respuesta ODK campo').first().json.needInbox }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "campo-if-inbox-001",
+      "name": "¿Enviar a bandeja demo?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2880,
+        280
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ ($env.NEXT_PUBLIC_SITE_URL || 'https://demo-agricultura.vercel.app').replace(/\\/$/, '') + '/api/agent/odk-inbox' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-demo-secret",
+              "value": "={{ $env.DEMO_AGENT_SECRET }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ submission: $('Respuesta ODK campo').first().json.submission }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "campo-inbox-post-001",
+      "name": "POST bandeja demo",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        180
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://openwa-api:2785/api/sessions/e75b92ce-697c-4864-9c6a-5c48be1b9599/messages/send-text",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ chatId: $('Respuesta ODK campo').first().json.chatId, text: $('Respuesta ODK campo').first().json.reply }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "campo-openwa-send-001",
+      "name": "OpenWA - Enviar respuesta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3100,
+        380
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "HMl1Be2nj7mdMRAw",
+          "name": "Header Auth account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "content": "## OpenWA · WhatsApp de campo (simulado)\n\nWebhook **nuevo**: `POST /webhook/odk-campo`\n\nNo reutilizar `/webhook/pruebas` (RUT en vivo).\n\nRedis: `odk:state:{chatId}`\n\nFichas demo: `demo-olivo`, `demo-visita`, `demo-finca`\n\nRegenerar responder: `node n8n/sync-odk-campo-workflow.mjs`\n\nVariables n8n: `NEXT_PUBLIC_SITE_URL`, `DEMO_AGENT_SECRET`",
+        "height": 420,
+        "width": 520
+      },
+      "id": "campo-sticky-001",
+      "name": "LEEME",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        640,
+        80
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook OpenWA Campo": {
+      "main": [
+        [
+          {
+            "node": "Normalizar entrada",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalizar entrada": {
+      "main": [
+        [
+          {
+            "node": "Redis - Deduplicar webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis - Deduplicar webhook": {
+      "main": [
+        [
+          {
+            "node": "¿Primera entrega?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Primera entrega?": {
+      "main": [
+        [
+          {
+            "node": "Restaurar mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Restaurar mensaje": {
+      "main": [
+        [
+          {
+            "node": "Redis - Recuperar estado ODK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis - Recuperar estado ODK": {
+      "main": [
+        [
+          {
+            "node": "¿Es audio?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es audio?": {
+      "main": [
+        [
+          {
+            "node": "Preparar entrada desde audio",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Preparar entrada desde texto",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar entrada desde audio": {
+      "main": [
+        [
+          {
+            "node": "Respuesta ODK campo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar entrada desde texto": {
+      "main": [
+        [
+          {
+            "node": "Respuesta ODK campo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respuesta ODK campo": {
+      "main": [
+        [
+          {
+            "node": "Redis - Guardar estado ODK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Redis - Guardar estado ODK": {
+      "main": [
+        [
+          {
+            "node": "¿Enviar a bandeja demo?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Enviar a bandeja demo?": {
+      "main": [
+        [
+          {
+            "node": "POST bandeja demo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "OpenWA - Enviar respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "POST bandeja demo": {
+      "main": [
+        [
+          {
+            "node": "OpenWA - Enviar respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires"
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "tags": []
+}

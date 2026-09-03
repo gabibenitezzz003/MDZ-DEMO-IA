@@ -1,3 +1,4 @@
+import { FieldWhatsApp } from "@/components/FieldWhatsApp";
 import {
   ODK_ENGINEERING_PROJECT_ID,
   ODK_ENGINEERING_PROJECT_NAME,
@@ -140,14 +141,15 @@ export function EngineeringWorkspace() {
             Formularios de campo · {ODK_ENGINEERING_PROJECT_NAME}
           </h1>
           <p className="mt-3 max-w-3xl text-sm leading-relaxed text-slate-300">
-            Esta vista es para el equipo técnico. El QR configura ODK Collect
-            contra Central en {ODK_ENGINEERING_SERVER_HOST}, proyecto{" "}
-            {ODK_ENGINEERING_PROJECT_ID}. No es el trámite RUT ni una web para
-            el productor. El servidor no se modificó: solo se leyó el listado
-            público de formularios.
+            El diferencial: el ingeniero habla por WhatsApp y se arma una
+            ficha simulada. No usamos los XForms reales de Central. Collect
+            queda solo como referencia; este chat no escribe en{" "}
+            {ODK_ENGINEERING_SERVER_HOST}.
           </p>
         </div>
       </section>
+
+      <FieldWhatsApp />
 
       <section
         id="odk-tablero"
@@ -244,11 +246,11 @@ export function EngineeringWorkspace() {
           <h2 className="text-lg font-semibold text-white">Flujo en campo</h2>
           <ol className="mt-4 grid gap-3 md:grid-cols-5">
             {[
-              ["1", "Instalar Collect", "Android · Play Store. No sirve iOS para este QR."],
-              ["2", "Agregar proyecto", "Escanear el QR de app user. Debe aparecer Agricultura Mendoza."],
-              ["3", "Obtener en blanco", "Baja los 5 XForms publicados en el proyecto 4."],
-              ["4", "Llenar y finalizar", "GPS, foto y envío. Autosend en wifi y datos."],
-              ["5", "Central", "Los envíos llegan a agriencuestas. Este tablero demo no los lee."],
+              ["1", "Hablar la ficha", "WhatsApp o el chat de campo. Una frase: olivo, visita o finca."],
+              ["2", "Foto y GPS", "El ingeniero manda media y ubicación. No abre casilleros."],
+              ["3", "Ficha simulada", "El flujo arma un paquete de demo. No es el XForm real."],
+              ["4", "Bandeja", "Aparece acá, en vivo. No se envía a Central."],
+              ["5", "Collect", "Queda como referencia. Esta demo no lo usa para cargar."],
             ].map(([n, title, body]) => (
               <li
                 key={n}
@@ -273,7 +275,8 @@ export function EngineeringWorkspace() {
             Formularios publicados
           </h2>
           <p className="mt-1 text-sm text-slate-400">
-            Nombres y versiones leídos del formList OpenRosa. Sin escrituras.
+            Referencia de lo publicado en Central (solo lectura). La carga por
+            WhatsApp usa fichas simuladas, no estos XForms.
           </p>
           <div className="mt-5 grid gap-4">
             {ODK_OFFICIAL_FORMS.map((form) => (

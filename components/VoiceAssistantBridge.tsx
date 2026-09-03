@@ -168,6 +168,7 @@ export function VoiceAssistantBridge() {
         "odk-forms",
         "odk-flujo",
         "odk-tablero",
+        "odk-whatsapp",
       ].includes(target);
 
       if (engineering && pathnameRef.current !== "/ingenieria") {

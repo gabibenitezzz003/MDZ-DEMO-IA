@@ -1,0 +1,619 @@
+================================================================================
+  OpenWA · WhatsApp de campo ODK (SIMULADO) — Guía completa n8n desde cero
+  Demo Agricultura Mendoza · Ingeniería / relevadores en campo
+  Versión: 2026-09-02
+================================================================================
+
+IMPORTANTE — LEER ANTES DE ARMAR
+--------------------------------
+• Webhook NUEVO: POST /webhook/odk-campo
+• NO reutilizar /webhook/pruebas (ese es el RUT en producción demo).
+• Redis separado: odk:state:{chatId}  (el RUT usa rut:state:{chatId})
+• Fichas SIMULADAS: demo-olivo, demo-visita, demo-finca
+• NO POST a agriencuestas.mendoza.gov.ar ni XForms reales de Central.
+• La lógica vive en código determinístico (odk-safe-responder.js).
+• Gemini (opcional) SOLO humaniza tono; nunca decide el flujo.
+• Marcador anti-bucle: prefijo invisible U+200B en respuestas del bot.
+
+
+================================================================================
+1. ARQUITECTURA (máximo rendimiento)
+================================================================================
+
+OpenWA (WhatsApp)
+    │
+    ▼ evento message.received
+[1] Webhook odk-campo
+    │
+    ▼
+[2] Normalizar entrada (Code) — filtra ruido, dedupe lógico
+    │
+    ▼
+[3] Redis INCR wa:dedupe:{messageId} — TTL 24h
+    │
+    ▼
+[4] IF primera entrega (=1)
+    │
+    ▼
+[5] Restaurar mensaje (Set)
+    │
+    ▼
+[6] Redis GET odk:state:{chatId}
+    │
+    ▼
+[7] IF inputType = audio ──SÍ──► [8a] ¿Audio descargado?
+    │                                    │
+    │                                    ├─ SÍ → Base64→archivo → ElevenLabs STT
+    │                                    └─ NO → OpenWA aviso "mandá texto"
+    │
+    └── NO ──► [8b] Preparar entrada texto
+                    │
+                    ▼
+[9] Respuesta ODK campo (Code) ← PEGAR odk-safe-responder.js COMPLETO
+    │
+    ▼
+[10] Redis SET odk:state:{chatId} — TTL 7 días
+    │
+    ▼
+[11] IF needInbox = true ──SÍ──► POST /api/agent/odk-inbox (bandeja demo web)
+    │
+    ▼
+[12] Agente IA + Gemini (OPCIONAL — humaniza tono)
+    │
+    ▼
+[13] Seleccionar respuesta híbrida (Code) — fallback a determinista
+    │
+    ├─► [14] OpenWA send-text (obligatorio)
+    └─► [15] ElevenLabs TTS + OpenWA nota de voz (OPCIONAL demo wow)
+
+
+Modo mínimo (reunión ultra estable): saltear nodos 12-13 y 15;
+conectar Redis Guardar → IF inbox → OpenWA send con deterministicReply.
+
+
+================================================================================
+2. VARIABLES DE ENTORNO (n8n + demo web)
+================================================================================
+
+En n8n (Settings → Variables) o docker-compose:
+
+  NEXT_PUBLIC_SITE_URL=https://tu-demo.vercel.app
+  DEMO_AGENT_SECRET=secreto-compartido-con-la-demo
+
+En la demo Next.js (.env):
+
+  NEXT_PUBLIC_SITE_URL=https://tu-demo.vercel.app
+  DEMO_AGENT_SECRET=el-mismo-secreto
+  WHATSAPP_ODK_TEXT=Hola, estoy en campo. Quiero cargar un formulario por WhatsApp: olivo encontrado o visita técnica.
+
+Credenciales n8n necesarias:
+  • Redis account
+  • Google Gemini (PaLM) API — si usás humanizador
+  • ElevenLabs — si usás STT/TTS
+  • OpenWA Header Auth — Bearer token sesión OpenWA
+
+
+================================================================================
+3. CONFIGURACIÓN OpenWA
+================================================================================
+
+Registrar webhook apuntando a:
+  https://n8n.followfreight.online/webhook/odk-campo
+
+Eventos útiles: message.received
+Recomendado filtrar en OpenWA solo message.received (ignorar ack, status, etc.)
+
+Mensaje prefill desde la web (/ingenieria):
+  wa.me/{numero}?text={WHATSAPP_ODK_TEXT codificado}
+
+
+================================================================================
+4. NODOS — CONFIGURACIÓN NODO POR NODO
+================================================================================
+
+--------------------------------------------------------------------------------
+NODO 1 — Webhook OpenWA Campo
+Tipo: Webhook
+HTTP Method: POST
+Path: odk-campo
+Authentication: None (OpenWA firma externamente; proteger por red/firewall)
+
+URL resultante ejemplo:
+  http://n8n:5678/webhook/odk-campo
+
+--------------------------------------------------------------------------------
+NODO 2 — Normalizar entrada
+Tipo: Code (JavaScript)
+Run Once for All Items: off
+
+--- CÓDIGO COMPLETO ---
+
+const payload = $json.body ?? $json;
+const data = payload.data ?? {};
+const event = payload.event ?? payload.body?.event;
+
+if (event === 'test' || event !== 'message.received') return [];
+if (data.isGroup === true || data.isStatusBroadcast === true || !data.chatId) return [];
+
+const rawType = String(data.type ?? '').toLowerCase();
+const isAudio = ['audio', 'voice', 'ptt'].includes(rawType);
+const isText = rawType === 'text' || rawType === 'chat' || (!rawType && typeof data.body === 'string');
+const isImage = ['image', 'photo'].includes(rawType);
+const isDocument = ['document', 'file'].includes(rawType);
+const isLocation = rawType === 'location' || Boolean(data.location || data.lat != null);
+if (!isAudio && !isText && !isImage && !isDocument && !isLocation) return [];
+
+const body = typeof data.body === 'string' ? data.body.trim() : '';
+if (isText && !body) return [];
+
+if (data.fromMe === true) {
+  const botEcho = /^\u200B/.test(body);
+  if (!isText || botEcho) return [];
+}
+
+const loc = data.location || {};
+const lat = loc.lat ?? loc.latitude ?? data.lat ?? data.latitude;
+const lon = loc.lng ?? loc.lon ?? loc.longitude ?? data.lon ?? data.longitude;
+
+const messageId =
+  data.id ??
+  payload.idempotencyKey ??
+  payload.deliveryId ??
+  `${data.chatId}:${data.timestamp ?? Date.now()}:${body}`;
+
+return [{
+  json: {
+    messageId: String(messageId),
+    chatId: data.chatId,
+    from: data.from ?? data.chatId,
+    inputType: isAudio ? 'audio' : isImage ? 'image' : isDocument ? 'document' : isLocation ? 'location' : 'text',
+    messageText: isLocation ? (body || 'ubicación') : body,
+    lat,
+    lon,
+    mediaBase64: data.media?.data ?? '',
+    mediaMimeType: data.media?.mimetype ?? data.mimetype ?? '',
+    mediaFileName: data.media?.filename ?? data.filename ?? '',
+    mediaUrl: data.media?.url ?? '',
+    mediaOmitted: Boolean(data.media?.omitted),
+    mediaSizeBytes: data.media?.sizeBytes ?? null,
+    timestamp: data.timestamp ?? null,
+    sessionId: payload.sessionId ?? null,
+    fromMe: Boolean(data.fromMe),
+  },
+}];
+
+--- FIN CÓDIGO ---
+
+Notas:
+• "No output data" con status.received es NORMAL — el nodo filtra eventos basura.
+• fromMe=true solo pasa texto humano en "mensaje a vos mismo" (pruebas).
+
+--------------------------------------------------------------------------------
+NODO 3 — Redis - Deduplicar webhook
+Tipo: Redis
+Operation: Increment
+Key: ={{ 'wa:dedupe:' + $json.messageId }}
+Expire: true
+TTL: 86400 (24 horas)
+
+--------------------------------------------------------------------------------
+NODO 4 — ¿Primera entrega?
+Tipo: IF
+Condición: Number(Object.values($json)[0] ?? 0) equals 1
+Rama TRUE → continuar
+Rama FALSE → fin (duplicado)
+
+--------------------------------------------------------------------------------
+NODO 5 — Restaurar mensaje
+Tipo: Set (Manual Mapping)
+Campos (expresiones n8n):
+  messageId  = {{ $('Normalizar entrada').first().json.messageId }}
+  chatId     = {{ $('Normalizar entrada').first().json.chatId }}
+  inputType  = {{ $('Normalizar entrada').first().json.inputType }}
+  messageText= {{ $('Normalizar entrada').first().json.messageText }}
+  lat        = {{ $('Normalizar entrada').first().json.lat }}
+  lon        = {{ $('Normalizar entrada').first().json.lon }}
+  mediaBase64= {{ $('Normalizar entrada').first().json.mediaBase64 }}
+  mediaMimeType = {{ $('Normalizar entrada').first().json.mediaMimeType }}
+  mediaOmitted  = {{ $('Normalizar entrada').first().json.mediaOmitted }}
+  mediaFileName = {{ $('Normalizar entrada').first().json.mediaFileName }}
+  mediaUrl      = {{ $('Normalizar entrada').first().json.mediaUrl }}
+
+--------------------------------------------------------------------------------
+NODO 6 — Redis - Recuperar estado ODK
+Tipo: Redis
+Operation: Get
+Property Name: state_raw
+Key: ={{ 'odk:state:' + $json.chatId }}
+Key Type: string
+
+--------------------------------------------------------------------------------
+NODO 7 — ¿Es audio?
+Tipo: IF
+Condición: {{ $json.inputType }} equals "audio"
+
+Rama TRUE  → Nodo 8a (cadena audio)
+Rama FALSE → Nodo 8b (texto/imagen/ubicación)
+
+--------------------------------------------------------------------------------
+NODO 8a — ¿Audio descargado?
+Tipo: IF
+Condición: {{ $json.mediaBase64 && !$json.mediaOmitted ? 'ok' : 'missing' }} equals "ok"
+
+Rama TRUE:
+  8a.1 Convert to File — operation toBinary
+       Source Property: mediaBase64
+       File Name: whatsapp-audio
+       Mime Type: ={{ $json.mediaMimeType || 'audio/ogg' }}
+
+  8a.2 ElevenLabs — Speech to Text
+       Resource: speech
+       Operation: speechToText
+       Model: scribe_v1
+       Language: es
+       Speakers: 1
+
+  8a.3 Preparar entrada desde audio (Code):
+
+--- CÓDIGO ---
+
+return [{
+  json: {
+    ...$('Restaurar mensaje').first().json,
+    input: $json.text ?? $json.transcript ?? $json.messageText ?? '',
+    sourceType: 'audio',
+    state_raw: $('Redis - Recuperar estado ODK').first().json.state_raw ?? '',
+  },
+}];
+
+--- FIN ---
+
+Rama FALSE:
+  OpenWA send-text: "No pude bajar el audio. ¿Lo repetís por texto?"
+
+--------------------------------------------------------------------------------
+NODO 8b — Preparar entrada desde texto
+Tipo: Code
+
+--- CÓDIGO ---
+
+return [{
+  json: {
+    ...$json,
+    input: $json.messageText,
+    sourceType: $json.inputType,
+    state_raw: $('Redis - Recuperar estado ODK').first().json.state_raw ?? '',
+  },
+}];
+
+--- FIN ---
+
+Ambas ramas convergen en → Nodo 9
+
+--------------------------------------------------------------------------------
+NODO 9 — Respuesta ODK campo
+Tipo: Code (JavaScript)
+
+*** PEGAR ÍNTEGRO el archivo del repo: n8n/odk-safe-responder.js ***
+*** Son ~428 líneas. Es la única fuente de verdad del flujo conversacional. ***
+*** Regenerar workflow JSON: node n8n/sync-odk-campo-workflow.mjs ***
+
+Salida esperada (json del primer item):
+  ok, chatId, reply (con \u200B), deterministicReply, stateJson,
+  formKey, formId, status, data, hasPhoto, geo,
+  allowAiOverride, submission, needInbox
+
+Fichas simuladas:
+  demo-olivo   → Olivo en campo
+  demo-visita  → Visita técnica
+  demo-finca   → Finca y cuartel
+
+Estados Redis (JSON en stateJson):
+  status: idle | collecting | confirm | completed
+  formKey: olivo | visita | fincas | ''
+  data: { departamento, estado, cultivo, ... }
+  hasPhoto: boolean
+  geo: { lat, lon, source } | null
+
+--------------------------------------------------------------------------------
+NODO 10 — Redis - Guardar estado ODK
+Tipo: Redis
+Operation: Set
+Key: ={{ 'odk:state:' + $('Respuesta ODK campo').first().json.chatId }}
+Value: ={{ $('Respuesta ODK campo').first().json.stateJson }}
+Expire: true
+TTL: 604800 (7 días)
+
+--------------------------------------------------------------------------------
+NODO 11 — ¿Enviar a bandeja demo?
+Tipo: IF
+Condición boolean: {{ $('Respuesta ODK campo').first().json.needInbox }} is true
+
+Rama TRUE → Nodo 11b POST bandeja
+Rama FALSE → saltar a respuesta WhatsApp
+
+Nodo 11b — POST bandeja demo
+Tipo: HTTP Request
+Method: POST
+URL: ={{ ($env.NEXT_PUBLIC_SITE_URL).replace(/\/$/, '') + '/api/agent/odk-inbox' }}
+Headers:
+  x-demo-secret: ={{ $env.DEMO_AGENT_SECRET }}
+  Content-Type: application/json
+Body (raw JSON):
+  ={{ JSON.stringify({ submission: $('Respuesta ODK campo').first().json.submission }) }}
+
+Timeout: 15000 ms
+On Error: continue (no bloquear WhatsApp si la web está caída)
+
+Después del POST → continuar a envío WhatsApp igual.
+
+--------------------------------------------------------------------------------
+NODO 12 — Agente IA conversacional (OPCIONAL)
+Tipo: @n8n/n8n-nodes-langchain.agent
+Prompt Type: Define
+On Error: continueRegularOutput
+
+Conectado a sub-nodo: Gemini - Cerebro
+  Model: gemini-2.0-flash o gemini-1.5-flash
+  Temperature: 0.35
+  Max Output Tokens: 220
+
+--- USER MESSAGE (campo "text" del agente) ---
+
+Mensaje del usuario: {{ $('Respuesta ODK campo').first().json.input }}
+Tipo de entrada: {{ $('Respuesta ODK campo').first().json.inputType || 'text' }}
+Ficha activa: {{ $('Respuesta ODK campo').first().json.formKey || 'ninguna' }} ({{ $('Respuesta ODK campo').first().json.formId || '—' }})
+Estado: {{ $('Respuesta ODK campo').first().json.status }}
+Datos ya cargados: {{ JSON.stringify($('Respuesta ODK campo').first().json.data || {}) }}
+Foto recibida: {{ $('Respuesta ODK campo').first().json.hasPhoto ? 'sí' : 'no' }}
+GPS: {{ $('Respuesta ODK campo').first().json.geo ? ($('Respuesta ODK campo').first().json.geo.lat + ', ' + $('Respuesta ODK campo').first().json.geo.lon) : 'no' }}
+
+Respuesta determinista obligatoria (no cambiar hechos ni pedidos):
+{{ $('Respuesta ODK campo').first().json.deterministicReply }}
+
+--- FIN USER MESSAGE ---
+
+--- SYSTEM MESSAGE (campo options.systemMessage) — PROMPT COMPLETO ---
+
+Sos el asistente de WhatsApp de la demo de campo de la Dirección de Agricultura de Mendoza. Hablás con ingenieros, técnicos y relevadores — no con productores del RUT.
+
+Tu rol es EXCLUSIVAMENTE humanizar una respuesta determinista que ya viene validada. Vos no decidís el flujo, no inventás campos, no elegís formularios y no confirmás envíos por tu cuenta. La máquina de estado ya hizo todo eso.
+
+CONTEXTO DE LA DEMO
+- Las fichas son SIMULADAS: demo-olivo, demo-visita, demo-finca.
+- El paquete es JSON de demostración. NO es un XForm real de ODK Central.
+- NO se escribe en agriencuestas.mendoza.gov.ar ni en ningún servidor oficial.
+- El catálogo de 5 formularios de Central es solo referencia; por WhatsApp se cargan fichas demo.
+- La certificación de equipos (GPS, brújula, cámara con coordenadas) NO se puede hacer por WhatsApp; eso es Collect con sensores.
+
+FICHAS QUE MANEJÁS
+1) demo-olivo · Olivo en campo
+   Campos: departamento, estado (Productivo/Abandonado/Puro/Consociado/Trinchera/Inculto), consociación, cultivos vecinos.
+2) demo-visita · Visita técnica
+   Campos: departamento, cultivo, variedad, estadio fenológico (brotes, floración, cuaje, envero, cosecha, dormancia…).
+3) demo-finca · Finca y cuartel
+   Campos: departamento, finca, cultivo, orientación (N/S/E/O).
+
+CÓMO HABLÁS
+- Español argentino, voseo natural, tono de compañero de campo — no call center, no menú numerado, no "Seleccione una opción".
+- Corto: 1–2 oraciones, 3 solo si hace falta cerrar confirmación con resumen.
+- Variá el arranque (Dale / Bien / Listo / Anotado / Perfecto). No repitas la misma frase dos turnos seguidos.
+- Si saludan o preguntan cómo estás, respondé eso primero y después el paso que pide la determinista.
+- Pedí datos como los pediría un colega en la finca, no como casillero de formulario.
+- Aceptá lenguaje hablado: "encontré un olivo", "visita de ciruela en floración", "al lado de vid", "la variedad no la tengo".
+- Si mencionan foto o ubicación, reconocelo brevemente ("foto anotada", "gps recibido") sin inventar coordenadas.
+
+REGLAS DURAS (incumplirlas = respuesta inválida)
+- Devolvé SOLO el texto final para WhatsApp. Sin Markdown, sin JSON, sin listas con viñetas, sin encabezados.
+- NO cambies ningún dato de la determinista: departamentos, cultivos, estados, estadios, variedades, nombres de finca, orientación, IDs de ficha, ni el significado de confirmo/corregir.
+- NO agregues campos que la determinista no pidió.
+- NO digas que se envió a Central, ODK Collect, agriencuestas ni que quedó "oficial" o "validado".
+- NO prometas certificación de equipo, brújula ni GPS por WhatsApp.
+- NO mezcles con el RUT, CUIT, SIA ni trámites de productor.
+- NO inventes URLs, QR, credenciales ni números de expediente.
+- NO pongas comillas alrededor de confirmo, corregir o nuevo relevamiento como si fueran botones.
+- Si la determinista dice "ficha simulada" o "no es el XForm real", mantené ese matiz; no lo suavices hasta hacerlo pasar por producción.
+- Si la determinista pide confirmación, dejá claro que falta confirmo o el dato a corregir — sin agregar pasos extra.
+- Máximo 320 caracteres salvo que la determinista traiga un resumen largo de campos ya cargados; en ese caso podés repetir el resumen tal cual pero con tono humano.
+
+COMPRENSIÓN DE VOZ / STT
+- ciruelo → ciruela · durazno → duraznero · oliva/olivar → olivo
+- floración / floracion / en flor → estadio floración
+- abandonado / muerto / sin poda → estado abandonado
+- al lado de / junto a / con X al lado → cultivos vecinos
+- la salto / no la tengo / sin variedad → aceptá sin presionar
+- confirmo / dale / listo / ok → cierre; no reinterpretes "sitio" o "lista" como afirmación
+
+CUANDO LA DETERMINISTA YA CERRÓ UNA FICHA
+- Celebrá breve: quedó en la bandeja de la demo.
+- Recordá que es simulación si hace falta, en una frase natural.
+- Ofrecé "nuevo relevamiento" solo si la determinista lo menciona o el usuario pregunta qué sigue.
+
+CUANDO NO ENTENDISTE EL FORMULARIO (según determinista)
+- Guiá con ejemplos concretos de una sola frase:
+  "encontré un olivo abandonado en Rivadavia, al lado de vid"
+  "visita de ciruela industria en floración, Tunuyán"
+  "alta de finca Los Álamos, durazno, orientación norte, Maipú"
+
+PROHIBIDO
+- Tono robótico: "Su solicitud ha sido procesada", "Opción 1, Opción 2".
+- Sermones sobre política agrícola, clima o normativa no pedida.
+- Pedir permisos de Android/iOS; eso es Collect, no esta demo.
+
+OBJETIVO
+Sonar como un técnico mendocino por WhatsApp que anota lo que le dicen, pide lo que falta y cierra con confirmo — sabiendo que esto es una demo simulada para mostrar el flujo conversacional sin tocar Central.
+
+--- FIN SYSTEM MESSAGE ---
+
+--------------------------------------------------------------------------------
+NODO 13 — Seleccionar respuesta híbrida (OPCIONAL pero recomendado)
+Tipo: Code
+
+--- CÓDIGO ---
+
+const safe = $('Respuesta ODK campo').first().json;
+const mark = '\u200B';
+const strip = (text) => String(text || '')
+  .replace(/^\u200B+/, '')
+  .trim();
+const ai = strip($json.output || $json.text || '');
+const deterministic = strip(safe.deterministicReply);
+const allowAi = safe.allowAiOverride !== false;
+
+const usable = allowAi && Boolean(
+  ai.length >= 15 &&
+  !/^(no|ok|dale|si|sí)\.?$/i.test(ai) &&
+  !/```/.test(ai) &&
+  !(deterministic.length > 80 && ai.length < deterministic.length * 0.4)
+);
+
+const spoken = usable ? ai : deterministic;
+return [{
+  json: {
+    ...safe,
+    reply: mark + spoken,
+    voiceReply: spoken,
+  },
+}];
+
+--- FIN CÓDIGO ---
+
+Si NO usás Gemini: conectar Redis Guardar directo a OpenWA con:
+  text = {{ '\u200B' + $('Respuesta ODK campo').first().json.deterministicReply }}
+
+--------------------------------------------------------------------------------
+NODO 14 — OpenWA - Enviar respuesta (OBLIGATORIO)
+Tipo: HTTP Request
+Method: POST
+Authentication: Header Auth (OpenWA token)
+URL: http://openwa-api:2785/api/sessions/{SESSION_ID}/messages/send-text
+Body (raw JSON):
+  {{ JSON.stringify({ chatId: $('Respuesta ODK campo').first().json.chatId, text: $json.reply }) }}
+
+El campo text DEBE incluir el \u200B inicial (anti-bucle).
+
+--------------------------------------------------------------------------------
+NODO 15 — Nota de voz respuesta (OPCIONAL wow demo)
+Paralelo desde Nodo 13:
+  ElevenLabs Text to Speech → Convert to Base64 → OpenWA convert OGG → send voice
+Texto: {{ $json.voiceReply }}
+Voz: la misma del RUT demo si querés consistencia de marca.
+
+
+================================================================================
+5. CONEXIONES (wiring)
+================================================================================
+
+Webhook OpenWA Campo → Normalizar entrada
+Normalizar entrada → Redis Deduplicar
+Redis Deduplicar → ¿Primera entrega?
+¿Primera entrega? [true] → Restaurar mensaje
+Restaurar mensaje → Redis Recuperar estado ODK
+Redis Recuperar estado ODK → ¿Es audio?
+¿Es audio? [true] → ¿Audio descargado? → STT → Preparar audio → Respuesta ODK campo
+¿Es audio? [false] → Preparar texto → Respuesta ODK campo
+Respuesta ODK campo → Redis Guardar estado ODK
+Redis Guardar estado ODK → ¿Enviar a bandeja demo?
+¿Enviar a bandeja? [true] → POST bandeja → OpenWA Enviar
+¿Enviar a bandeja? [false] → OpenWA Enviar
+(Opcional) Redis Guardar → Agente IA → Seleccionar híbrida → OpenWA + TTS
+
+
+================================================================================
+6. API BANDEJA DEMO (lado Next.js)
+================================================================================
+
+POST /api/agent/odk-inbox
+Header: x-demo-secret: {DEMO_AGENT_SECRET}
+Body:
+{
+  "submission": {
+    "id": "campo-xxxxx",
+    "formId": "demo-olivo",
+    "formName": "Ficha demo · Olivo en campo",
+    "version": "sim-1",
+    "channel": "whatsapp-demo",
+    "data": { "departamento": "Rivadavia", ... },
+    "xml": "{ JSON string con simulada: true }",
+    "hasPhoto": true,
+    "geo": { "lat": -33.19, "lon": -68.47, "source": "whatsapp" },
+    "createdAt": 1234567890,
+    "note": "Ficha simulada de demostración..."
+  }
+}
+
+GET /api/agent/odk-inbox — requiere sesión demo (la web hace polling cada 4s)
+
+
+================================================================================
+7. GUION DEMO REUNIÓN (5 minutos)
+================================================================================
+
+1. Abrir https://{demo}/ingenieria#odk-whatsapp en proyector
+2. Mostrar bandeja vacía + chat simulado en página
+3. Enviar WhatsApp real (o usar chat in-page):
+   "Encontré un olivo abandonado en Rivadavia, al lado de vid"
+4. Mandar foto del sitio
+5. Compartir ubicación
+6. Escribir: confirmo
+7. Bandeja web se actualiza con Ficha demo · Olivo — abrir JSON (simulada: true)
+8. Narrar: "Mismo patrón n8n que el RUT del productor, pero para ingeniería.
+   Conversación natural, paquete simulado, Central intacto."
+
+
+================================================================================
+8. CHECKLIST PRUEBAS ANTES DE LA REUNIÓN
+================================================================================
+
+[ ] Webhook odk-campo responde 200 en test n8n
+[ ] Mensaje texto simple dispara Respuesta ODK campo
+[ ] Redis odk:state persiste entre mensajes del mismo chatId
+[ ] "foto del sitio" NO confirma solo (bug histórico: "si" dentro de "sitio")
+[ ] GPS no guarda 0,0 sin coordenadas reales
+[ ] confirmo genera needInbox=true y POST a /api/agent/odk-inbox
+[ ] Bandeja en /ingenieria muestra la ficha en <5 segundos
+[ ] Respuesta WhatsApp lleva prefijo \u200B (no loop)
+[ ] Webhook RUT /pruebas sigue funcionando independiente
+[ ] Certificación/brújula redirige a ficha simulada, no promete sensores
+
+
+================================================================================
+9. PROHIBIDO / NO HACER
+================================================================================
+
+✗ Reutilizar webhook /webhook/pruebas para campo
+✗ Usar form IDs reales: identif_olivos_encontrados_2026, Feno26-*, etc.
+✗ POST a agriencuestas.mendoza.gov.ar
+✗ Compartir Redis key rut:state con odk:state
+✗ Dejar Gemini decidir confirmaciones o inventar campos
+✗ Ejecutar fix-premium-workflow.mjs sobre n8n en vivo sin revisar
+✗ Commitear odk-collect-oficial.png (contiene app-user key embebida)
+
+
+================================================================================
+10. IMPORT RÁPIDO (alternativa a armar a mano)
+================================================================================
+
+En el repo:
+  node n8n/sync-odk-campo-workflow.mjs
+  → genera n8n/openwa-odk-campo.json
+
+Importar ese JSON en n8n, revisar credenciales Redis/OpenWA/Gemini, activar workflow.
+Agregar manualmente nodos 12-13-15 si querés capa IA+voz (el JSON base es determinista).
+
+
+================================================================================
+11. FUENTE DE VERDAD DEL RESPONDER
+================================================================================
+
+Archivo: n8n/odk-safe-responder.js
+Mantener sincronizado con lib/odk-campo-responder.ts (tests en lib/odk-campo-responder.test.ts)
+
+Cualquier cambio de lógica → editar odk-safe-responder.js → correr:
+  npx vitest run lib/odk-campo-responder.test.ts
+  node n8n/sync-odk-campo-workflow.mjs
+  re-importar o pegar código en nodo 9 de n8n
+
+================================================================================
+FIN DEL DOCUMENTO
+================================================================================

@@ -77,6 +77,19 @@ export function resolveEngineeringQuestion(
     /(odk|collect|qr|agriencuestas|central|xform|app user|ingenieria)/.test(t);
   if (!inView && !explicitOdk) return null;
 
+  if (
+    /(whatsapp|wsp|cargar olivo|encontre un olivo|visita por chat|sin collect|bandeja)/.test(
+      t
+    )
+  ) {
+    return {
+      action: "navigate",
+      target: "odk-whatsapp",
+      reply:
+        "Este es el diferencial: el ingeniero no rellena casilleros. Habla por WhatsApp o por este chat de campo y yo armo una ficha simulada. La bandeja muestra el paquete de demo. No usamos los XForms reales ni tocamos Central.",
+    };
+  }
+
   if (/(tablero|kpi|power bi|numeros|indicadores|envios)/.test(t)) {
     const visits = ODK_SIMULATED_BOARD.kpis.find((k) => k.id === "visitas");
     return {

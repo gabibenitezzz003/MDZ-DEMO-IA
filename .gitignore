@@ -13,3 +13,9 @@ coverage
 *.pem
 
 .tunnel-url
+
+.env.local
+.env.production
+
+.codex/
+qa-artifacts/

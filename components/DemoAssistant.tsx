@@ -20,12 +20,11 @@ import { officialUrlFor } from "@/lib/page-knowledge";
 import { readBrowserPageContext } from "@/lib/page-context";
 import type { AgentEvent } from "@/lib/types";
 import {
+  analyzeFrame,
   blobToBase64,
-  computeRms,
   createVadGate,
   pickRecorderMime,
   stepVadGate,
-  voiceBandRatio,
 } from "@/lib/mic-capture";
 import { isLikelyNoiseTranscript } from "@/lib/noise-transcript";
 import {
@@ -321,6 +320,8 @@ export function DemoAssistant() {
   const vadRafRef = useRef<number | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordChunksRef = useRef<Blob[]>([]);
+  /** El VAD cerró una frase que resultó ser ruido: tirar el audio sin gastar STT. */
+  const discardRecordingRef = useRef(false);
   const vadSpeakingRef = useRef(false);
   const silenceAtRef = useRef(0);
   const sttBusyRef = useRef(false);
@@ -470,6 +471,7 @@ export function DemoAssistant() {
       }
     }
     recordChunksRef.current = [];
+    discardRecordingRef.current = false;
     vadSpeakingRef.current = false;
     silenceAtRef.current = 0;
     sttBusyRef.current = false;
@@ -544,9 +546,12 @@ export function DemoAssistant() {
       };
       rec.onstop = () => {
         const chunks = recordChunksRef.current;
+        const discard = discardRecordingRef.current;
+        discardRecordingRef.current = false;
         recordChunksRef.current = [];
         mediaRecorderRef.current = null;
-        if (!chunks.length) return;
+        setInterim("");
+        if (discard || !chunks.length) return;
         const blob = new Blob(chunks, {
           type: rec.mimeType || recorderMimeRef.current,
         });
@@ -561,9 +566,10 @@ export function DemoAssistant() {
     }
   }, [sendRecordingForStt]);
 
-  const endUtteranceRecorder = useCallback(() => {
+  const endUtteranceRecorder = useCallback((discard = false) => {
     const rec = mediaRecorderRef.current;
     if (!rec || rec.state === "inactive") return;
+    discardRecordingRef.current = discard;
     try {
       rec.stop();
     } catch {
@@ -580,8 +586,11 @@ export function DemoAssistant() {
       audio: {
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        // El AGC sube el ruido de sala en los silencios y arruina la referencia
+        // de ambiente del VAD: preferimos ganancia estable.
+        autoGainControl: false,
         channelCount: 1,
+        sampleRate: 48_000,
       },
     });
     mediaStreamRef.current = stream;
@@ -595,10 +604,16 @@ export function DemoAssistant() {
     audioCtxRef.current = ctx;
     if (ctx.state === "suspended") await ctx.resume();
     const source = ctx.createMediaStreamSource(stream);
+    // Pasa-altos: saca zumbido de red, aire acondicionado y golpes de mesa
+    // antes de que lleguen al medidor de energía.
+    const highPass = ctx.createBiquadFilter();
+    highPass.type = "highpass";
+    highPass.frequency.value = 120;
     const analyser = ctx.createAnalyser();
     analyser.fftSize = 2048;
     analyser.smoothingTimeConstant = 0.35;
-    source.connect(analyser);
+    source.connect(highPass);
+    highPass.connect(analyser);
     analyserRef.current = analyser;
     serverMicRef.current = true;
     setListening(true);
@@ -615,16 +630,20 @@ export function DemoAssistant() {
       const now = performance.now();
       const dt = Math.min(80, Math.max(8, now - lastTs));
       lastTs = now;
-      const level = computeRms(analyserNode);
-      const ratio = voiceBandRatio(analyserNode, ctx.sampleRate);
-      if (Math.abs(level - lastLevelUi) > 0.008 || level < 0.01) {
-        lastLevelUi = level;
-        setMicLevel(level);
+      const frame = analyzeFrame(analyserNode, ctx.sampleRate);
+      if (Math.abs(frame.rms - lastLevelUi) > 0.008 || frame.rms < 0.01) {
+        lastLevelUi = frame.rms;
+        setMicLevel(frame.rms);
       }
 
       if (tourRunningRef.current) return;
 
-      const { start, end, barge } = stepVadGate(gate, level, ratio, dt);
+      // Mientras el asistente habla, el ambiente no se re-mide: el TTS que se
+      // filtra por los parlantes subiría el piso de ruido y después taparía al
+      // usuario durante varios segundos.
+      const { start, end, discard, barge } = stepVadGate(gate, frame, dt, {
+        holdAmbient: speakingRef.current,
+      });
 
       // Una voz sostenida puede interrumpir; los picos breves siguen filtrados
       // por bargeHoldMs en el VAD.
@@ -645,10 +664,12 @@ export function DemoAssistant() {
         vadSpeakingRef.current = true;
         beginUtteranceRecorder();
       }
-      if (end && vadSpeakingRef.current) {
+      // `discard`: la frase cerró pero tenía muy poca voz real dentro. Es ruido
+      // de sala, así que ni se manda a transcribir.
+      if ((end || discard) && vadSpeakingRef.current) {
         vadSpeakingRef.current = false;
         silenceAtRef.current = 0;
-        endUtteranceRecorder();
+        endUtteranceRecorder(discard);
       }
     };
     vadRafRef.current = requestAnimationFrame(tick);
@@ -920,7 +941,11 @@ export function DemoAssistant() {
     setSessionLive(true);
 
     try {
-      primeOfficialTab();
+      // Sin primeOfficialTab(): reservaba la pestaña del sitio oficial en el
+      // mismo gesto del click para esquivar el bloqueador de popups, pero eso
+      // abría un about:blank apenas arrancaba la sesión, antes de que el
+      // usuario pidiera nada. Cuando de verdad haga falta salir al oficial, el
+      // toast «Abrir sitio oficial» lo abre desde un click real.
       await startServerMic();
       setLog((prev) => [
         ...prev,
@@ -1604,10 +1629,11 @@ export function DemoAssistant() {
       clearRestartTimer();
       disposeRecognition(true);
       if (!serverMicRef.current) setListening(false);
-      // Cortá una grabación VAD a medias al pasar a push-to-talk.
+      // Cortá una grabación VAD a medias al pasar a push-to-talk: está trunca,
+      // no vale la pena transcribirla.
       if (vadSpeakingRef.current) {
         vadSpeakingRef.current = false;
-        endUtteranceRecorder();
+        endUtteranceRecorder(true);
       }
     } else if (
       sessionLiveRef.current &&

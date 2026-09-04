@@ -19,3 +19,11 @@ coverage
 
 .codex/
 qa-artifacts/
+.claude/launch.json
+n8n/AGENTE-CAMPO-V4.md
+n8n/agente-campo-v4.json
+n8n/conocimiento-campo.mjs
+n8n/configurar-openwa.sh
+n8n/build-agente-campo.mjs
+lib/conocimiento-campo.test.ts
+lib/agente-campo-workflow.test.ts

@@ -10,6 +10,13 @@ declare global {
   }
 }
 
+/** El usuario nombra explícitamente el recurso externo que quiere abrir. */
+const RECURSO_OFICIAL =
+  /(informes?|el link|el enlace|recurso oficial|pagina oficial|sitio oficial|portal oficial|llevame al oficial|mandame al oficial)/;
+
+/** Reintento cuando el navegador bloqueó la pestaña. */
+const NO_SE_ABRIO = /(no se abrio|no abrio|no aparecio|no se pudo abrir)/;
+
 export function wantsOpenResource(raw: string): boolean {
   const text = raw
     .toLowerCase()
@@ -24,9 +31,11 @@ export function wantsOpenResource(raw: string): boolean {
   ) {
     return false;
   }
-  return /(abrime|abri me|abri el|abri la|abrí|abre el|abre la|abrir |informes?|el link|el enlace|recurso oficial|pagina oficial|sitio oficial|redirigi|mandame al|llevame al oficial|no se abrio|no se abrió|no abrio|no abrió)/.test(
-    text
-  );
+  // Exige nombrar el recurso. Antes alcanzaba con un verbo suelto ("abrime"),
+  // y eso hacía que una confirmación pelada como "vale, abrímelo" —que se
+  // refería a otra cosa ofrecida un turno antes— terminara abriendo el portal
+  // oficial de la última sección visitada.
+  return NO_SE_ABRIO.test(text) || RECURSO_OFICIAL.test(text);
 }
 
 export function closeResourceViewer() {

@@ -6,6 +6,13 @@ const DEFAULT_NARRATION_MODEL = "eleven_multilingual_v2";
 
 export type TtsQuality = "chat" | "narration";
 
+/** Motivo del último fallo de síntesis, para poder diagnosticarlo sin leer logs. */
+let lastFailure: string | null = null;
+
+export function lastTtsFailure(): string | null {
+  return lastFailure;
+}
+
 type SynthOpts = {
   quality?: TtsQuality;
 };
@@ -15,7 +22,11 @@ async function synthesizeSpeechOnce(
   opts: SynthOpts = {}
 ): Promise<Buffer | null> {
   const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
-  if (!apiKey || !text.trim()) return null;
+  if (!apiKey) {
+    lastFailure = "Falta ELEVENLABS_API_KEY: la voz cae al navegador.";
+    return null;
+  }
+  if (!text.trim()) return null;
 
   const quality = opts.quality || "chat";
   const voiceId = process.env.ELEVENLABS_VOICE_ID?.trim() || DEFAULT_VOICE_ID;
@@ -86,12 +97,22 @@ async function synthesizeSpeechOnce(
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "");
+    // La causa importa: sin crédito o con la key vencida el sitio sigue
+    // hablando con la voz del navegador y el fallo pasa inadvertido hasta
+    // que alguien lo escucha en vivo. Dejamos el motivo explícito.
+    lastFailure =
+      /quota_exceeded/.test(errText)
+        ? "ElevenLabs sin créditos (quota_exceeded): la voz cae al navegador."
+        : res.status === 401
+          ? "ElevenLabs rechazó la API key (401)."
+          : `ElevenLabs respondió ${res.status}.`;
     console.error("ElevenLabs TTS failed", res.status, errText.slice(0, 300));
     if (quality === "narration" && modelId !== chatModel) {
       return synthesizeSpeechOnce(text, { quality: "chat" });
     }
     return null;
   }
+  lastFailure = null;
 
   const ab = await res.arrayBuffer();
   return Buffer.from(ab);

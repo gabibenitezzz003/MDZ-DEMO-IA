@@ -3,6 +3,13 @@ import { normalizeRutFields } from "@/lib/rut-conversation";
 
 export type MemoryTurn = { role: "user" | "assistant"; text: string };
 
+/**
+ * Algo que el asistente ofreció y quedó esperando un sí. Sin esto, un "dale"
+ * o un "abrímelo" del turno siguiente no tiene a qué referirse y lo termina
+ * capturando cualquier regla por palabra suelta.
+ */
+export type PendingOffer = "whatsapp_rut";
+
 type SessionMem = {
   pendingFields: Record<string, string>;
   awaitingFillConfirm: boolean;
@@ -13,6 +20,7 @@ type SessionMem = {
   rutMode?: "idle" | "collecting" | "confirm" | "done";
   ackSalt?: number;
   facts: Record<string, string>;
+  pendingOffer?: PendingOffer;
 };
 
 const globalStore = globalThis as typeof globalThis & {
@@ -35,7 +43,13 @@ function empty(): SessionMem {
     rutStep: undefined,
     rutMode: "idle",
     facts: {},
+    pendingOffer: undefined,
   };
+}
+
+export function setPendingOffer(sessionId: string, offer?: PendingOffer) {
+  const current = getMemory(sessionId);
+  memory.set(sessionId, { ...current, pendingOffer: offer });
 }
 
 function harvestFactsFromText(text: string): Record<string, string> {

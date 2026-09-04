@@ -86,7 +86,7 @@ export function resolveEngineeringQuestion(
       action: "navigate",
       target: "odk-whatsapp",
       reply:
-        "Este es el diferencial: el ingeniero no rellena casilleros. Habla por WhatsApp o por este chat de campo y yo armo una ficha simulada. La bandeja muestra el paquete de demo. No usamos los XForms reales ni tocamos Central.",
+        "Acá el ingeniero no rellena casilleros. Habla por WhatsApp o por este chat de campo y yo armo una ficha simulada. La bandeja muestra el paquete de demo. No usamos los XForms reales ni tocamos Central.",
     };
   }
 

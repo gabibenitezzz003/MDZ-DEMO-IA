@@ -40,7 +40,7 @@ export function classifyConversationMode(raw: string): ConversationMode {
   const text = normalizeIntentText(raw);
   if (wantsRutWhatsAppHandoff(raw)) return "register";
   if (
-    /(llevame|lleveme|mostrame|muestrame|muestreme|anda a|ir a|abrime|abri |abre |redirigi|quiero ver)/.test(
+    /(llevame|lleveme|mostrame|muestrame|muestreme|anda a|ir a|abrime|abri |abre |redirigi|quiero ver|mandame|manda me|mandar a|pasame a|tirame a|sacame a)/.test(
       text
     )
   ) {
@@ -96,16 +96,19 @@ export function resolveRutFollowUp(
   };
 }
 
+/**
+ * Atajo ANTES de consultar al modelo: casos de alta confianza donde la
+ * respuesta ya se conoce y el viaje al LLM solo agregaría latencia (botones
+ * rápidos de la demo, comandos del navegador, secciones nombradas).
+ */
 export function shouldPreferLocalRules(
   text: string,
   raw: string,
   intent: AssistantIntent
 ): boolean {
-  if (wantsSimpleGreeting(text)) return true;
-  if (wantsListeningCheck(text)) return true;
+  if (shouldOverrideModel(text, raw)) return true;
   if (wantsRutWhatsAppHandoff(text) || wantsRutWhatsAppHandoff(raw)) return true;
   if (wantsRutNavigate(text) || wantsRutNavigate(raw)) return true;
-  if (isRutSttHomophone(text) || isRutSttHomophone(raw)) return true;
 
   const hits = findBestSections(text, 1);
   const best = hits[0];
@@ -121,7 +124,7 @@ export function shouldPreferLocalRules(
   if (
     best &&
     best.score >= 4 &&
-    /(llevame|lleveme|mostrame|muestrame|quiero ver|ir a|parte de|seccion|zona de)/.test(
+    /(llevame|lleveme|mostrame|muestrame|quiero ver|ir a|parte de|seccion|zona de|mandame|mandar a|pasame a)/.test(
       text
     )
   ) {
@@ -137,6 +140,22 @@ export function shouldPreferLocalRules(
     return true;
   }
 
+  return false;
+}
+
+/**
+ * Cuándo DESCARTAR una respuesta que el modelo ya produjo.
+ *
+ * Mucho más corto que el atajo previo, y a propósito: acá el modelo ya leyó el
+ * historial y el contexto de página, así que pisarlo por coincidencia de
+ * palabras es casi siempre un error. Solo sobreviven los casos donde el texto
+ * no admite otra lectura posible.
+ */
+export function shouldOverrideModel(text: string, raw: string): boolean {
+  if (wantsSimpleGreeting(text)) return true;
+  if (wantsListeningCheck(text)) return true;
+  // Eco de voz de una sola palabra ("rod", "ruth"): no hay nada que interpretar.
+  if (isRutSttHomophone(text) || isRutSttHomophone(raw)) return true;
   return false;
 }
 

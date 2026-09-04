@@ -25,3 +25,5 @@ n8n/agente-campo-v4.json
 n8n/conocimiento-campo.mjs
 n8n/configurar-openwa.sh
 n8n/build-agente-campo.mjs
+lib/conocimiento-campo.test.ts
+lib/agente-campo-workflow.test.ts

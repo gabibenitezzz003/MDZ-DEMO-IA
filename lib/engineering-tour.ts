@@ -18,7 +18,7 @@ export function buildEngineeringTourBeats(): TourBeat[] {
       id: "eng-whatsapp",
       chapter: "WhatsApp de campo",
       spoken:
-        "El diferencial está acá. El ingeniero no rellena casilleros. Habla por WhatsApp como en la finca: encontré un olivo, hice una visita. El sistema arma una ficha simulada y la bandeja la muestra. No usamos los formularios reales de Central.",
+        "Acá el ingeniero no rellena casilleros. Habla por WhatsApp como en la finca: encontré un olivo, hice una visita. El sistema arma una ficha simulada y la bandeja la muestra. No usamos los formularios reales de Central.",
       action: "navigate",
       target: "odk-whatsapp",
       payload: { openLink: false, click: true },

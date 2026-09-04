@@ -108,7 +108,7 @@ const SPOKEN: Record<string, string> = {
   "odk-tablero":
     "Este tablero es una simulación estilo Power BI para mostrar KPIs de campo. No son envíos en vivo de Central.",
   "odk-whatsapp":
-    "Este es el diferencial: el ingeniero habla por WhatsApp y el sistema arma una ficha simulada. La bandeja muestra el paquete de demo. No usamos los XForms reales.",
+    "Acá el ingeniero habla por WhatsApp y el sistema arma una ficha simulada. La bandeja muestra el paquete de demo. No usamos los XForms reales.",
   capacitaciones:
     "Esta es la zona de capacitaciones. Hay BPA y Encargado de Finca. La inscripción en el oficial se hace por mail a direcciondeagricultura arroba mendoza punto gov punto ar.",
   "capacitacion-bpa":

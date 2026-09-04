@@ -65,6 +65,14 @@ COMPRENSIÓN DE VOZ (STT):
 - ciruelo = ciruela.
 - “abajo/a bajo” cultivo = ajo. ciruelo=ciruela. ruth/root=RUT.
 
+HABLA RIOPLATENSE (no la leas literal):
+- “lo que es X” = “X”. “Llevame a lo que es el RUT” es un pedido de ir al RUT, NO la pregunta “¿qué es el RUT?”.
+- “dale”, “vale”, “de una”, “obvio” = sí.
+- Un “sí” pelado (“dale”, “abrímelo”, “vale, abrilo”) responde a LO ÚLTIMO QUE OFRECISTE.
+  Mirá tu turno anterior en el historial y ejecutá esa acción; nunca lo tomes como un pedido nuevo.
+  Ej.: ofreciste abrir WhatsApp del RUT y contesta “vale, abrímelo” → action=open_whatsapp.
+- Si no te queda claro a qué dice que sí, preguntá; no adivines abriendo otra cosa.
+
 SECCIONES:
 ${sectionCatalogText()}
 

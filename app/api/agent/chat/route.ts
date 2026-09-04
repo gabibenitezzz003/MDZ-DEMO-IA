@@ -12,6 +12,7 @@ import {
   popPreviousSection,
   setAwaitingFill,
   setLastSection,
+  setPendingOffer,
   setRutProgress,
 } from "@/lib/chat-memory";
 import { interpretUtterance } from "@/lib/demo-assistant";
@@ -48,7 +49,7 @@ import { ApiSecurityError, secureApiRequest } from "@/lib/api-security";
 import {
   classifyConversationMode,
   resolveLocalIntent,
-  shouldPreferLocalRules,
+  shouldOverrideModel,
 } from "@/lib/local-intent-first";
 import { wantsListeningCheck, wantsSimpleGreeting } from "@/lib/intent-guards";
 import { wantsOdkHelp } from "@/lib/spoken-fields";
@@ -56,6 +57,7 @@ import { greetingReply } from "@/lib/greeting-reply";
 import { displaySpoken, humanizeSpoken, prepareTourNarration } from "@/lib/spoken-style";
 import { conflictSpoken } from "@/lib/field-merge";
 import { wantsOpenResource } from "@/lib/open-resource";
+import { isOfferConfirmation } from "@/lib/pending-offer";
 import {
   wantsExplainCurrentPage,
   wantsPageLocation,
@@ -403,11 +405,22 @@ async function handleChat(req: NextRequest) {
   const text = corrected.text;
   const mem = getMemory(sessionId);
   appendTurn(sessionId, "user", text);
+
+  // Sección nombrada de forma inequívoca en la frase ("mandame a fruticultura",
+  // "era durazno industria"). Un puntaje alto significa que el usuario dijo el
+  // nombre, no que se parezca de casualidad.
+  const namedSection = findBestSections(text, 1)[0];
+  const namesSection = Boolean(namedSection && namedSection.score >= 8);
+
   const passiveFacts = extractPassiveContext(originalText);
   if (Object.keys(passiveFacts).length) {
     mergeSessionFacts(sessionId, passiveFacts);
     if (
       classifyConversationMode(originalText) === "command" &&
+      // "Era durazno industria" nombra una sección: es un pedido de navegación,
+      // no alguien contando que cultiva durazno. Sin esta condición el turno se
+      // respondía con "guardé este contexto" y el usuario no iba a ningún lado.
+      !namesSection &&
       !wantsRutWhatsAppHandoff(text) &&
       !wantsRutDemoWizard(text)
     ) {
@@ -437,6 +450,29 @@ async function handleChat(req: NextRequest) {
     });
     appendTurn(sessionId, "assistant", spoken);
     return withVoice(spoken, { via: "local", understood: true });
+  }
+
+  // Respuesta a algo que ofrecimos el turno anterior. Se resuelve acá, antes
+  // que cualquier regla por palabra suelta: "vale, abrímelo" contesta la
+  // oferta, no pide abrir el portal de la última sección visitada.
+  // La oferta vale un solo turno; después se descarta para que no reviva.
+  if (fresh.pendingOffer === "whatsapp_rut") {
+    setPendingOffer(sessionId, undefined);
+    if (isOfferConfirmation(originalText) || isOfferConfirmation(text)) {
+      const wa = buildWhatsAppRutUrl();
+      const spoken = whatsAppRutSpoken(Boolean(wa));
+      appendTurn(sessionId, "assistant", spoken);
+      const event = buildEvent(sessionId, "open_whatsapp", wa || undefined, {
+        alsoNavigate: true,
+        sectionId: "rut",
+        whatsappUrl: wa || undefined,
+      });
+      return withVoice(spoken, {
+        via: "local",
+        event,
+        action: "open_whatsapp",
+      });
+    }
   }
 
   if (
@@ -496,9 +532,38 @@ async function handleChat(req: NextRequest) {
         local: () => interpretWithGemini(brainInput),
       })) ?? interpretUtterance(text);
 
-    if (shouldPreferLocalRules(text, originalText, intent)) {
+    // El modelo ya vio historial y contexto de página: solo lo descartamos
+    // cuando el texto no admite otra lectura (saludo, prueba de mic, eco).
+    if (shouldOverrideModel(text, originalText)) {
       intent = interpretUtterance(text);
     }
+  }
+
+  // Si el usuario nombró una sección y la intención apunta a otra, gana la
+  // nombrada. El caso que rompía: pedir "mandame a fruticultura" y recibir la
+  // descripción de la sección anterior, porque el destino quedaba pegado al
+  // último visitado. Corrige el destino, nunca el texto del modelo.
+  if (
+    namedSection &&
+    namesSection &&
+    intent.target !== namedSection.id &&
+    !["open_whatsapp", "open_rut", "fill_form", "ask_confirm", "show_checklist"].includes(
+      intent.action
+    )
+  ) {
+    const soloExplicar =
+      classifyConversationMode(originalText) === "explain" ||
+      classifyConversationMode(originalText) === "ask";
+    intent = {
+      ...intent,
+      action: soloExplicar ? "describe" : "navigate",
+      target: namedSection.id,
+      understood: true,
+      payload: { ...(intent.payload ?? {}), sectionId: namedSection.id },
+      // El texto del modelo describía otra sección: acá ya no sirve.
+      reply: namedSection.spoken || intent.reply,
+      useGuide: false,
+    };
   }
 
   // Meta mic / coherencia: nunca dejar que un falso "continuar" abra otra sección.
@@ -532,6 +597,9 @@ async function handleChat(req: NextRequest) {
     const spoken =
       "El RUT es el Registro Único de Tierras de Mendoza. Para registrarte lo derivamos a WhatsApp: un agente valida datos, pide fotos y documentación (texto o audio). ¿Querés que te abra WhatsApp ahora?";
     appendTurn(sessionId, "assistant", spoken);
+    // Queda anotado que preguntamos: el "dale" del próximo turno tiene a qué
+    // referirse en vez de caer en la primera regla que matchee una palabra.
+    setPendingOffer(sessionId, "whatsapp_rut");
     const event = buildEvent(sessionId, "navigate", "rut", {
       openLink: false,
       click: true,
@@ -788,11 +856,15 @@ async function handleChat(req: NextRequest) {
         openLink: true,
         redirect: true,
       },
+      // El bloque resuelve la URL, no el diálogo: si el modelo ya redactó una
+      // respuesta, se respeta. Reescribirla era lo que hacía que el asistente
+      // narrara una acción distinta de la que el usuario había pedido.
       reply: /(no se abrio|no se abrió|no abrio|no abrió|no aparecio|no apareció)/.test(
         text
       )
         ? "Perdón: a veces el navegador bloquea la ventana. Tocá el botón azul «Abrir sitio oficial» abajo a la izquierda; con ese toque sí abre. Yo sigo acá."
-        : `Dale, te abro el recurso oficial${sectionId ? ` de ${sectionId.replace(/-/g, " ")}` : ""} en otra pestaña. Si no aparece, tocá «Abrir sitio oficial». Yo sigo acá.`,
+        : intent.reply?.trim() ||
+          `Dale, te abro el recurso oficial${sectionId ? ` de ${sectionId.replace(/-/g, " ")}` : ""} en otra pestaña. Si no aparece, tocá «Abrir sitio oficial». Yo sigo acá.`,
     };
   }
 
@@ -812,7 +884,7 @@ async function handleChat(req: NextRequest) {
     };
   }
 
-  if (intent.payload?.continueTour && mem.lastSectionId) {
+  if (intent.payload?.continueTour && !namesSection && mem.lastSectionId) {
     const nextId =
       RELATED_NEXT[mem.lastSectionId] ||
       buildSectionGuide(mem.lastSectionId)?.related[0]?.id;
@@ -831,7 +903,10 @@ async function handleChat(req: NextRequest) {
     }
   }
 
-  if (intent.payload?.explainLast && mem.lastSectionId) {
+  // "explicame qué es" se refiere a la sección anterior SOLO si el usuario no
+  // nombró otra en la misma frase. "Mandame a fruticultura y explicame qué es"
+  // pedía fruticultura, y este bloque la reemplazaba por la sección previa.
+  if (intent.payload?.explainLast && !namesSection && mem.lastSectionId) {
     const guide = buildSectionGuide(mem.lastSectionId);
     intent = withNavigationDefaults({
       action: "describe",

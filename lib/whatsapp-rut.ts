@@ -48,8 +48,12 @@ function normalize(text: string) {
 /** Solo quiere explicación del RUT, no registrarse. */
 export function wantsRutExplainOnly(raw: string) {
   const t = normalize(raw);
+  // "lo que es el RUT" es muletilla rioplatense por "el RUT", no una pregunta:
+  // sin esta excepción, "llevame a lo que es el RUT por WhatsApp" se leía como
+  // "¿qué es el RUT?" y el pedido de registro nunca llegaba al handoff.
+  const preguntaQueEs = /\bque es (el )?rut\b/.test(t) && !/\blo que es\b/.test(t);
   return (
-    /que es (el )?rut/.test(t) ||
+    preguntaQueEs ||
     /para que sirve (el )?rut/.test(t) ||
     /explic(ame|eme|a).{0,12}rut/.test(t) ||
     /cuenta.{0,12}del rut/.test(t)

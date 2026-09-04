@@ -52,7 +52,7 @@ export function wantsCampoCollector(raw: string) {
 
 export function campoSpoken(hasLink: boolean) {
   if (hasLink) {
-    return "El diferencial es este: el ingeniero habla por WhatsApp como en la finca y yo armo una ficha simulada. Te abro el chat; en la bandeja aparece el paquete de demo, sin usar los formularios reales ni tocar Central.";
+    return "Acá el ingeniero habla por WhatsApp como en la finca y yo armo una ficha simulada. Te abro el chat; en la bandeja aparece el paquete de demo, sin usar los formularios reales ni tocar Central.";
   }
   return "Acá el ingeniero carga por conversación, no a mano. Abrí el chat de campo y hablale como si estuvieras en la finca. La ficha es simulada: no es un XForm de Central.";
 }

@@ -12,25 +12,21 @@ function markOpened(url: string) {
   window.__demoLastOfficialOpen = { url, at: Date.now() };
 }
 
-export function primeOfficialTab() {
-  if (typeof window === "undefined") return;
-  try {
-    // Must run in the same tick as a click / keypress.
-    const w = window.open("about:blank", "demo-agricultura-oficial");
-    if (w) {
-      officialWin = w;
-      try {
-        w.document.title = "Abriendo sitio oficial…";
-      } catch {
-        // cross-origin once navigated
-      }
-    } else {
-      officialWin = null;
-    }
-  } catch {
-    officialWin = null;
-  }
-}
+/*
+ * Acá vivía primeOfficialTab(): abría un about:blank en el mismo tick del click
+ * para reservar la pestaña antes de que el bloqueador de popups pudiera
+ * impedirlo. El costo era peor que el problema — aparecía una pestaña en blanco
+ * cada vez que alguien tocaba "Demo 3 min" o un chip, aunque el recorrido no
+ * terminara saliendo al sitio oficial nunca.
+ *
+ * Se eliminó en vez de sólo dejar de llamarla: ya había vuelto una vez, porque
+ * quitar una de las tres llamadas dejó las otras dos vivas. Sin la función, no
+ * hay dónde reintroducirla por descuido.
+ *
+ * El camino bueno ya existía: si navigateOfficialTab() devuelve false porque el
+ * navegador bloqueó el popup, se emite `demo:official-toast` con blocked:true y
+ * OfficialToast muestra el CTA, que abre desde un click real.
+ */
 
 /**
  * Open (or navigate) the official tab.

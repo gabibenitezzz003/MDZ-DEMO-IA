@@ -14,7 +14,6 @@ import { buildEngineeringTourBeats } from "@/lib/engineering-tour";
 import {
   navigateOfficialTab,
   openOfficialFromUserGesture,
-  primeOfficialTab,
 } from "@/lib/official-tab";
 import { officialUrlFor } from "@/lib/page-knowledge";
 import { readBrowserPageContext } from "@/lib/page-context";
@@ -1922,7 +1921,6 @@ export function DemoAssistant() {
               type="button"
               disabled={busy || tourRunning}
               onClick={() => {
-                primeOfficialTab();
                 void runGuidedTour(
                   engineeringView ? "engineering" : "producer"
                 );
@@ -1937,15 +1935,6 @@ export function DemoAssistant() {
                 type="button"
                 disabled={tourRunning}
                 onClick={() => {
-                  if (
-                    s === "Demo guiada" ||
-                    s === "Llevame a ciruela" ||
-                    s === "Mapas agrícolas" ||
-                    s === "Qué es el QR" ||
-                    s === "Mostrame el tablero"
-                  ) {
-                    primeOfficialTab();
-                  }
                   if (s === "Quiero el RUT por WhatsApp" && whatsappUrl) {
                     openOfficialFromUserGesture(whatsappUrl);
                   }

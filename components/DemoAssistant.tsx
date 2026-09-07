@@ -25,7 +25,12 @@ import {
   pickRecorderMime,
   stepVadGate,
 } from "@/lib/mic-capture";
+import {
+  looksIncompleteUtterance,
+  mergeUtterances,
+} from "@/lib/incomplete-utterance";
 import { isLikelyNoiseTranscript } from "@/lib/noise-transcript";
+import { tryInstantVoiceReply } from "@/lib/voice-instant-reply";
 import {
   estimateSpeechMs,
   isNearDuplicateHeard,
@@ -35,7 +40,13 @@ import {
 } from "@/lib/voice-stt-guards";
 
 const OFFICIAL_PORTAL = officialUrlFor();
-const CHAT_TIMEOUT_MS = 16_000;
+const CHAT_TIMEOUT_MS = 3_500;
+const STT_TIMEOUT_MS = 3_000;
+/** Espera antes de mandar un isFinal del navegador (pausas entre palabras). */
+const FINAL_GRACE_MS = 1_100;
+const FINAL_GRACE_COMPLETE_MS = 220;
+const PENDING_UTTERANCE_MS = 3_800;
+const INTERIM_COMMIT_MS = 2_400;
 const INTERRUPT_ACK = "Dale, seguimos con eso. ";
 const SILENT_WAV =
   "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
@@ -324,6 +335,11 @@ export function DemoAssistant() {
   const vadSpeakingRef = useRef(false);
   const silenceAtRef = useRef(0);
   const sttBusyRef = useRef(false);
+  const sttAbortRef = useRef<AbortController | null>(null);
+  const pendingUtteranceRef = useRef("");
+  const pendingUtteranceTimerRef = useRef<number | null>(null);
+  const finalBufferRef = useRef("");
+  const finalGraceTimerRef = useRef<number | null>(null);
   const recorderMimeRef = useRef("audio/webm");
   const startEngineRef = useRef<() => void>(() => undefined);
   const handleTextRef = useRef<(raw: string) => Promise<void>>(
@@ -339,6 +355,103 @@ export function DemoAssistant() {
   const interruptNowRef = useRef<() => void>(() => undefined);
   const tourCropIdRef = useRef<string>("ciruela");
   const tourOfficialUrlRef = useRef<string>(OFFICIAL_PORTAL);
+
+  const clearPendingUtterance = useCallback(() => {
+    if (pendingUtteranceTimerRef.current != null) {
+      window.clearTimeout(pendingUtteranceTimerRef.current);
+      pendingUtteranceTimerRef.current = null;
+    }
+    pendingUtteranceRef.current = "";
+  }, []);
+
+  const clearFinalGrace = useCallback(() => {
+    if (finalGraceTimerRef.current != null) {
+      window.clearTimeout(finalGraceTimerRef.current);
+      finalGraceTimerRef.current = null;
+    }
+  }, []);
+
+  const flushFinalBuffer = useCallback(() => {
+    clearFinalGrace();
+    const text = finalBufferRef.current.trim();
+    finalBufferRef.current = "";
+    if (!text) return;
+    queueOrSendHeardRef.current?.(text);
+  }, [clearFinalGrace]);
+
+  const scheduleFinalFlush = useCallback(
+    (text: string) => {
+      const grace = looksIncompleteUtterance(text)
+        ? FINAL_GRACE_MS
+        : tryInstantVoiceReply(text)
+          ? FINAL_GRACE_COMPLETE_MS
+          : text.split(/\s+/).filter(Boolean).length >= 5
+            ? 650
+            : FINAL_GRACE_MS;
+      clearFinalGrace();
+      finalGraceTimerRef.current = window.setTimeout(() => {
+        finalGraceTimerRef.current = null;
+        flushFinalBuffer();
+      }, grace);
+    },
+    [clearFinalGrace, flushFinalBuffer]
+  );
+
+  const bufferFinalHeard = useCallback(
+    (chunk: string) => {
+      const piece = chunk.trim();
+      if (!piece) return;
+      finalBufferRef.current = mergeUtterances(finalBufferRef.current, piece);
+      setInterim(finalBufferRef.current);
+      scheduleFinalFlush(finalBufferRef.current);
+    },
+    [scheduleFinalFlush]
+  );
+
+  const flushPendingUtterance = useCallback(() => {
+    const merged = pendingUtteranceRef.current.trim();
+    clearPendingUtterance();
+    if (merged) void handleTextRef.current(merged);
+  }, [clearPendingUtterance]);
+
+  const queueOrSendHeard = useCallback(
+    (raw: string) => {
+      const done = raw.trim();
+      if (!done) return;
+
+      if (pendingUtteranceRef.current) {
+        const merged = mergeUtterances(pendingUtteranceRef.current, done);
+        clearPendingUtterance();
+        if (looksIncompleteUtterance(merged)) {
+          pendingUtteranceRef.current = merged;
+          setInterim(`${merged}…`);
+          pendingUtteranceTimerRef.current = window.setTimeout(() => {
+            pendingUtteranceTimerRef.current = null;
+            flushPendingUtterance();
+          }, PENDING_UTTERANCE_MS);
+          return;
+        }
+        void handleTextRef.current(merged);
+        return;
+      }
+
+      if (looksIncompleteUtterance(done)) {
+        pendingUtteranceRef.current = done;
+        setInterim(`${done}…`);
+        pendingUtteranceTimerRef.current = window.setTimeout(() => {
+          pendingUtteranceTimerRef.current = null;
+          flushPendingUtterance();
+        }, PENDING_UTTERANCE_MS);
+        return;
+      }
+
+      void handleTextRef.current(done);
+    },
+    [clearPendingUtterance, flushPendingUtterance]
+  );
+
+  const queueOrSendHeardRef = useRef<(raw: string) => void>(() => undefined);
+  queueOrSendHeardRef.current = queueOrSendHeard;
 
   const speechSupported = useMemo(
     () => (typeof window === "undefined" ? false : Boolean(getRecognitionCtor())),
@@ -487,12 +600,15 @@ export function DemoAssistant() {
 
   const sendRecordingForStt = useCallback(async (blob: Blob) => {
     // Clips muy cortos suelen ser ruido ambiente, no voz útil.
-    if (!blob.size || blob.size < 400) return;
+    if (!blob.size || blob.size < 200) return;
     if (sttBusyRef.current) return;
     sttBusyRef.current = true;
-    setInterim("Transcribiendo…");
+    sttAbortRef.current?.abort();
     const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 20_000);
+    sttAbortRef.current = controller;
+    setInterim("Transcribiendo…");
+    const ctx = readBrowserPageContext();
+    const timeout = window.setTimeout(() => controller.abort(), STT_TIMEOUT_MS);
     try {
       const audioBase64 = await blobToBase64(blob);
       const res = await fetch("/api/agent/stt", {
@@ -502,11 +618,14 @@ export function DemoAssistant() {
         body: JSON.stringify({
           audioBase64,
           mimeType: blob.type || recorderMimeRef.current,
+          hint: ctx.sectionTitle,
+          lastSectionId: ctx.sectionId,
         }),
       });
       const data = (await res.json()) as {
         ok?: boolean;
         text?: string;
+        heardAs?: string;
         error?: string;
       };
       if (!res.ok || data.ok === false) {
@@ -516,19 +635,45 @@ export function DemoAssistant() {
       setInterim("");
       if (text && !isLikelyNoiseTranscript(text)) {
         acceptHeardRef.current?.(text);
+      } else if (!text && data.error) {
+        setLog((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text:
+              data.error.includes("GEMINI_API_KEY") || data.error.includes("Falta")
+                ? "Para transcribir voz necesitás GEMINI_API_KEY en .env.local. Reiniciá npm run dev después de agregarla."
+                : "No te escuché bien. Probá de nuevo: decí «hola» cerca del micrófono.",
+          },
+        ]);
+      } else if (sessionLiveRef.current) {
+        setInterim("");
       }
     } catch (err) {
-      console.error("server STT failed", err);
-      setInterim("");
-      setLog((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: "No pude transcribir lo que dijo. Probá de nuevo o escribí en el chat.",
-        },
-      ]);
+      const name =
+        err && typeof err === "object" && "name" in err
+          ? String((err as { name: string }).name)
+          : "";
+      if (name !== "AbortError") {
+        console.error("server STT failed", err);
+        setInterim("");
+        const detail =
+          err instanceof Error && /GEMINI_API_KEY|transcribir/i.test(err.message)
+            ? "Falta configurar GEMINI_API_KEY en .env.local"
+            : "No pude transcribir lo que dijiste. Seguí hablando o escribí en el chat.";
+        setLog((prev) => [
+          ...prev,
+          {
+            role: "assistant",
+            text: detail,
+          },
+        ]);
+      } else {
+        setInterim("");
+      }
     } finally {
       window.clearTimeout(timeout);
+      if (sttAbortRef.current === controller) sttAbortRef.current = null;
       sttBusyRef.current = false;
     }
   }, []);
@@ -655,7 +800,16 @@ export function DemoAssistant() {
         return;
       }
 
-      if (sttBusyRef.current) return;
+      if (sttBusyRef.current) {
+        // Nueva frase mientras transcribe: cancelar STT viejo y grabar de nuevo.
+        if (start && !vadSpeakingRef.current) {
+          sttAbortRef.current?.abort();
+          sttBusyRef.current = false;
+        } else if (!start) {
+          return;
+        }
+      }
+
       if (pushToTalkRef.current) return;
 
       if (start && !vadSpeakingRef.current) {
@@ -722,8 +876,8 @@ export function DemoAssistant() {
     bargeInFlightRef.current = false;
     clearInterimCommit();
     setInterim("");
-    void handleTextRef.current(done);
-  }, [clearInterimCommit]);
+    queueOrSendHeard(done);
+  }, [clearInterimCommit, queueOrSendHeard]);
 
   acceptHeardRef.current = acceptHeard;
 
@@ -776,8 +930,15 @@ export function DemoAssistant() {
       const spoken = lastSpokenRef.current;
 
       if (liveTrim) {
-        setInterim(liveTrim);
+        setInterim(
+          finalBufferRef.current
+            ? `${finalBufferRef.current} ${liveTrim}`.trim()
+            : liveTrim
+        );
         lastInterimRef.current = liveTrim;
+        if (finalBufferRef.current) {
+          scheduleFinalFlush(finalBufferRef.current);
+        }
         if (interimCommitTimerRef.current != null) {
           window.clearTimeout(interimCommitTimerRef.current);
         }
@@ -787,8 +948,16 @@ export function DemoAssistant() {
           const pending = lastInterimRef.current.trim();
           if (!pending || pending.length < 2) return;
           if (!sessionLiveRef.current) return;
-          acceptHeard(pending);
-        }, 2000);
+          if (finalBufferRef.current) {
+            finalBufferRef.current = mergeUtterances(
+              finalBufferRef.current,
+              pending
+            );
+            flushFinalBuffer();
+          } else {
+            acceptHeardRef.current?.(pending);
+          }
+        }, INTERIM_COMMIT_MS);
       }
 
       // Cortá el audio apenas se escucha voz real (no eco).
@@ -802,7 +971,7 @@ export function DemoAssistant() {
 
       const done = finalText.trim();
       if (!done) return;
-      acceptHeard(done);
+      bufferFinalHeard(done);
     };
 
     rec.onerror = (ev) => {
@@ -881,7 +1050,13 @@ export function DemoAssistant() {
       recognitionRef.current = null;
       scheduleRestart(500);
     }
-  }, [acceptHeard, disposeRecognition, scheduleRestart]);
+  }, [
+    bufferFinalHeard,
+    disposeRecognition,
+    flushFinalBuffer,
+    scheduleFinalFlush,
+    scheduleRestart,
+  ]);
 
   startEngineRef.current = startRecognitionEngine;
 
@@ -922,6 +1097,11 @@ export function DemoAssistant() {
     genIdRef.current += 1;
     abortRef.current?.abort();
     abortRef.current = null;
+    sttAbortRef.current?.abort();
+    sttAbortRef.current = null;
+    clearPendingUtterance();
+    clearFinalGrace();
+    finalBufferRef.current = "";
     clearRestartTimer();
     stopAudio();
     setInterim("");
@@ -930,7 +1110,7 @@ export function DemoAssistant() {
     disposeRecognition(true);
     busyRef.current = false;
     setBusy(false);
-  }, [clearRestartTimer, disposeRecognition, stopServerMic]);
+  }, [clearFinalGrace, clearPendingUtterance, clearRestartTimer, disposeRecognition, stopServerMic]);
 
   const startVoiceSession = useCallback(async () => {
     unlockPlayback();
@@ -939,27 +1119,42 @@ export function DemoAssistant() {
     sessionLiveRef.current = true;
     setSessionLive(true);
 
+    // Rápido: dictado del navegador (sin subir audio ni esperar Gemini).
+    if (speechSupported) {
+      try {
+        await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            channelCount: 1,
+          },
+        });
+      } catch {
+        // SpeechRecognition puede funcionar igual; el permiso ayuda en Edge.
+      }
+      startRecognitionEngine();
+      setLog((prev) => [
+        ...prev,
+        {
+          role: "assistant",
+          text: "Te escucho. Decí hola o pedime lo que necesites.",
+        },
+      ]);
+      return;
+    }
+
     try {
-      // Sin primeOfficialTab(): reservaba la pestaña del sitio oficial en el
-      // mismo gesto del click para esquivar el bloqueador de popups, pero eso
-      // abría un about:blank apenas arrancaba la sesión, antes de que el
-      // usuario pidiera nada. Cuando de verdad haga falta salir al oficial, el
-      // toast «Abrir sitio oficial» lo abre desde un click real.
       await startServerMic();
       setLog((prev) => [
         ...prev,
         {
           role: "assistant",
-          text: "Te escucho. Pedime lo que necesites y te llevo. Si hablo de más, cortame y seguimos con lo nuevo.",
+          text: "Te escucho. Pedime lo que necesites y te llevo.",
         },
       ]);
-      return;
     } catch (err) {
       console.error("server mic failed", err);
       serverMicRef.current = false;
-    }
-
-    if (!speechSupported) {
       sessionLiveRef.current = false;
       setSessionLive(false);
       setLog((prev) => [
@@ -969,17 +1164,7 @@ export function DemoAssistant() {
           text: "No pude abrir el micrófono. Permitilo en el candado del sitio o escribí en el chat.",
         },
       ]);
-      return;
     }
-
-    setLog((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        text: "Micrófono abierto (dictado del navegador). Hablá cuando quieras.",
-      },
-    ]);
-    startRecognitionEngine();
   }, [speechSupported, startRecognitionEngine, startServerMic]);
 
   const endVoiceSession = useCallback(() => {
@@ -1191,6 +1376,23 @@ export function DemoAssistant() {
       setInput("");
       setConfirm(null);
 
+      const instant = tryInstantVoiceReply(text, {
+        engineering: engineeringView,
+        turnCount: log.length,
+      });
+      if (instant) {
+        busyRef.current = false;
+        setBusy(false);
+        setLog((prev) => [...prev, { role: "assistant", text: instant.spoken }]);
+        await speakLine(instant.spoken, undefined, undefined, myGen);
+        if (myGen !== genIdRef.current) return;
+        if (sessionLiveRef.current && !tourRunningRef.current && !pushToTalkRef.current) {
+          if (serverMicRef.current) setListening(true);
+          else scheduleRestart(180);
+        }
+        return;
+      }
+
       try {
         if (wantsStopTour(text)) {
           tourCancelRef.current = true;
@@ -1229,6 +1431,7 @@ export function DemoAssistant() {
           endSession?: boolean;
           startTour?: boolean | "engineering" | "producer";
           needsTts?: boolean;
+          fastTts?: boolean;
         };
 
         if (myGen !== genIdRef.current) return;
@@ -1238,7 +1441,15 @@ export function DemoAssistant() {
         }
 
         let spoken = data.spoken || data.reply || "Listo.";
-        if (resumeInterrupted && !/^dale,?\s+seguimos/i.test(spoken)) {
+        const explainOrLocation =
+          /^(estás en|acá está|esta es|frutos secos|el RUT es|no encuentro)/i.test(
+            spoken.trim()
+          ) || /explic|contame|donde estoy|que hay aca/i.test(text);
+        if (
+          resumeInterrupted &&
+          !explainOrLocation &&
+          !/^dale,?\s+seguimos/i.test(spoken)
+        ) {
           spoken = `${INTERRUPT_ACK}${spoken}`;
         }
         // Liberar "Pensando…" y navegar antes de esperar la voz.
@@ -1255,7 +1466,12 @@ export function DemoAssistant() {
 
         let audioBase64 = data.audioBase64;
         let audioMime = data.audioMime;
-        if (!audioBase64 && data.needsTts !== false && spoken.trim()) {
+        if (
+          !audioBase64 &&
+          data.needsTts !== false &&
+          !data.fastTts &&
+          spoken.trim()
+        ) {
           try {
             const ttsRes = await fetch("/api/agent/tts", {
               method: "POST",
@@ -1298,8 +1514,6 @@ export function DemoAssistant() {
           );
           return;
         }
-
-        resumeListeningAfterSpeech();
       } catch (err) {
         if (myGen !== genIdRef.current) return;
         const name =
@@ -1315,7 +1529,6 @@ export function DemoAssistant() {
               text: "Se me trabó la respuesta. Decime de nuevo, por favor.",
             },
           ]);
-          resumeListeningAfterSpeech();
           return;
         }
         const detail =
@@ -1329,19 +1542,29 @@ export function DemoAssistant() {
             text: `No pude responder (${detail}). El micrófono sigue en sesión: probá de nuevo.`,
           },
         ]);
-        resumeListeningAfterSpeech();
       } finally {
         if (myGen === genIdRef.current) {
           busyRef.current = false;
           setBusy(false);
           if (abortRef.current === controller) abortRef.current = null;
+          if (
+            sessionLiveRef.current &&
+            !tourRunningRef.current &&
+            !speakingRef.current &&
+            !pushToTalkRef.current
+          ) {
+            resumeListeningAfterSpeech();
+          }
         }
       }
     },
     [
+      engineeringView,
       hardStopSession,
+      log.length,
       resolveTourChoice,
       resumeListeningAfterSpeech,
+      scheduleRestart,
       sessionId,
       speakLine,
       stopGuidedTour,

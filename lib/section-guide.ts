@@ -56,7 +56,7 @@ const SPOKEN: Record<string, string> = {
   horticultura:
     "Esta es horticultura. Los bloques más pedidos son ajo, tomate industria y cinturón verde.",
   "frutos-secos":
-    "Acá está frutos secos: nuez, almendra y el resto de la cadena en Mendoza.",
+    "Frutos secos reúne la información productiva de nuez, almendra y otras cadenas secas en Mendoza: informes, datos de superficie y enlaces al material oficial del ministerio.",
   "cultivos-fruticolas":
     "Esta es la zona de cultivos frutícolas. Decime si querés ciruela, durazno, cereza, vid o el calendario fenológico y te llevo.",
   durazno:
@@ -127,6 +127,39 @@ function relatedFor(id: string) {
     .filter((item): item is { id: string; title: string } => item !== null);
 }
 
+export function buildExplainReply(
+  sectionId: string,
+  opts?: { repeat?: boolean }
+): string {
+  const guide = buildSectionGuide(sectionId);
+  if (!guide) {
+    return "No encuentro esa sección en la demo. Decime el nombre — ciruela, mapas, RUT — y te llevo.";
+  }
+
+  const section = getSection(sectionId);
+  const summary =
+    section && "summary" in section && section.summary ? section.summary : "";
+  const related = guide.related
+    .slice(0, 2)
+    .map((r) => r.title)
+    .join(" o ");
+
+  if (opts?.repeat) {
+    const detail = summary && !guide.spoken.includes(summary) ? ` ${summary}` : "";
+    const relatedBit = related
+      ? ` También puedo llevarte a ${related}, o abrir el recurso oficial si me lo pedís.`
+      : " Si querés el enlace oficial, decime «abrime el sitio oficial».";
+    return `${guide.spoken}${detail}${relatedBit}`;
+  }
+
+  const extra =
+    summary && !guide.spoken.includes(summary) ? ` ${summary}` : "";
+  const question = related
+    ? ` ¿Querés profundizar, ir a ${related}, o abrir el recurso oficial?`
+    : " ¿Querés profundizar en esta sección o ir a otra?";
+  return `${guide.spoken}${extra}${question}`;
+}
+
 export function buildSectionGuide(sectionId: string): SectionGuide | null {
   const section = getSection(sectionId);
   if (!section) return null;
@@ -134,7 +167,23 @@ export function buildSectionGuide(sectionId: string): SectionGuide | null {
   const related = relatedFor(sectionId);
   const base =
     SPOKEN[sectionId] ??
-    `Te traje a ${section.title}. ${"summary" in section && section.summary ? section.summary : "Es una sección del portal de la Dirección de Agricultura."}`;
+    (() => {
+      const summary =
+        "summary" in section && section.summary ? section.summary : "";
+      const groupLabel =
+        section.group === "cultivos"
+          ? "cultivos de Mendoza"
+          : section.group === "herramientas"
+            ? "herramientas digitales del portal"
+            : section.group === "publicaciones"
+              ? "publicaciones oficiales"
+              : section.group === "institucional"
+                ? "información institucional"
+                : "sección del portal de Agricultura";
+      return summary
+        ? `Acá está ${section.title}: ${summary} Es parte de ${groupLabel}.`
+        : `Te traje a ${section.title}, una ${groupLabel}.`;
+    })();
 
   const spoken = base;
 

@@ -58,6 +58,8 @@ describe("regresiones de la conversación reportada", () => {
     // La pregunta real sigue funcionando.
     expect(wantsRutExplainOnly("¿qué es el RUT?")).toBe(true);
     expect(wantsRutExplainOnly("explicame el RUT")).toBe(true);
+    expect(wantsRutExplainOnly("explicame que hace frutos secos")).toBe(false);
+    expect(wantsRutExplainOnly("explicame que hace fruto secos")).toBe(false);
   });
 
   it("no confunde una confirmación pelada con abrir el portal oficial", () => {

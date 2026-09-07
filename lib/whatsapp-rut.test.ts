@@ -19,6 +19,7 @@ describe("whatsapp rut intent", () => {
 
   it("keeps explain / wizard demo out of WhatsApp handoff", () => {
     expect(wantsRutExplainOnly("qué es el RUT")).toBe(true);
+    expect(wantsRutExplainOnly("explicame que hace frutos secos")).toBe(false);
     expect(wantsRutWhatsAppHandoff("qué es el RUT")).toBe(false);
     expect(wantsRutDemoWizard("abrime el wizard demo")).toBe(true);
     expect(wantsRutWhatsAppHandoff("abrime el wizard demo")).toBe(false);

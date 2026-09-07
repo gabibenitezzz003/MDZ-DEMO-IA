@@ -15,6 +15,7 @@ import {
   setPendingOffer,
   setRutProgress,
 } from "@/lib/chat-memory";
+import { resolveCatalogIntent } from "@/lib/catalog-intent";
 import { interpretUtterance } from "@/lib/demo-assistant";
 import { wantsGuidedTour } from "@/lib/demo-tour";
 import {
@@ -44,7 +45,7 @@ import {
   wantsRutChecklist,
   wantsToPassRutData,
 } from "@/lib/rut-conversation";
-import { buildSectionGuide } from "@/lib/section-guide";
+import { buildSectionGuide, buildExplainReply } from "@/lib/section-guide";
 import { ApiSecurityError, secureApiRequest } from "@/lib/api-security";
 import {
   classifyConversationMode,
@@ -59,9 +60,10 @@ import { conflictSpoken } from "@/lib/field-merge";
 import { wantsOpenResource } from "@/lib/open-resource";
 import { isOfferConfirmation } from "@/lib/pending-offer";
 import {
-  wantsExplainCurrentPage,
+  hadRecentExplainAsk,
   wantsPageLocation,
 } from "@/lib/page-question";
+import { looksIncompleteUtterance, incompleteContinuePrompt } from "@/lib/incomplete-utterance";
 import { correctSpeechTranscript } from "@/lib/stt-correct";
 import type { AgentEvent } from "@/lib/types";
 import {
@@ -154,25 +156,24 @@ function buildEvent(
 
 async function withVoice(spoken: string, extra: Record<string, unknown>) {
   const isTour = extra.via === "tour-tts";
-  const isLocal = extra.via === "local" || extra.via === "local-context";
+  if (!isTour && process.env.VOICE_FAST_TTS?.trim() !== "false") {
+    return withVoiceFast(spoken, extra);
+  }
   const display = displaySpoken(spoken);
   const ttsText = isTour ? prepareTourNarration(spoken) : humanizeSpoken(spoken);
   let audioBase64: string | undefined;
   let audioMime: string | undefined;
-  // Saludo y tour: el audio va en la misma respuesta. Si no, el cliente
-  // pide /api/agent/tts y el navegador suele bloquear el playback.
-  if (isTour || isLocal) {
-    try {
-      const audio = await synthesizeSpeech(ttsText, {
-        quality: isTour ? "narration" : "chat",
-      });
-      if (audio) {
-        audioBase64 = audio.toString("base64");
-        audioMime = "audio/mpeg";
-      }
-    } catch (err) {
-      console.error("TTS error", err);
+  // TTS en la misma respuesta: evita un segundo round-trip del micrófono.
+  try {
+    const audio = await synthesizeSpeech(ttsText, {
+      quality: isTour ? "narration" : "chat",
+    });
+    if (audio) {
+      audioBase64 = audio.toString("base64");
+      audioMime = "audio/mpeg";
     }
+  } catch (err) {
+    console.error("TTS error", err);
   }
   return NextResponse.json({
     ok: true,
@@ -182,6 +183,19 @@ async function withVoice(spoken: string, extra: Record<string, unknown>) {
     audioMime,
     needsTts: !audioBase64,
     voice: process.env.ELEVENLABS_VOICE_ID || "h60rOzgfLmYsntfqgGu2",
+    ...extra,
+  });
+}
+
+/** Respuesta sin ElevenLabs: el navegador habla al instante (~0 ms de red). */
+function withVoiceFast(spoken: string, extra: Record<string, unknown>) {
+  const display = displaySpoken(spoken);
+  return NextResponse.json({
+    ok: true,
+    spoken: display,
+    reply: display,
+    needsTts: true,
+    fastTts: true,
     ...extra,
   });
 }
@@ -223,9 +237,7 @@ function withNavigationDefaults(
     !["autoridades", "mision", "vision", "funcion", "normativa"].includes(
       String(intent.target)
     );
-  if (isMove && isCard && payload.openLink !== false) {
-    // Mark on the demo AND leave to the official resource (popup is often blocked).
-    payload.openLink = true;
+  if (isMove && isCard && payload.openLink === true) {
     payload.redirect = true;
   }
   if (intent.action === "describe" && payload.openLink === undefined) {
@@ -406,6 +418,12 @@ async function handleChat(req: NextRequest) {
   const mem = getMemory(sessionId);
   appendTurn(sessionId, "user", text);
 
+  if (looksIncompleteUtterance(originalText) || looksIncompleteUtterance(text)) {
+    const spoken = incompleteContinuePrompt();
+    appendTurn(sessionId, "assistant", spoken);
+    return withVoice(spoken, { via: "local", understood: true });
+  }
+
   // Sección nombrada de forma inequívoca en la frase ("mandame a fruticultura",
   // "era durazno industria"). Un puntaje alto significa que el usuario dijo el
   // nombre, no que se parezca de casualidad.
@@ -502,6 +520,71 @@ async function handleChat(req: NextRequest) {
     return withVoice(spoken, { via: "local", startTour: "producer" });
   }
 
+  if (wantsPageLocation(text)) {
+    const sectionId =
+      body.context?.sectionId ||
+      fresh.lastSectionId ||
+      (body.context?.pathname?.startsWith("/rut") ? "rut" : undefined) ||
+      (engineeringMode ? "ingenieria" : undefined);
+    const guide = sectionId ? buildSectionGuide(sectionId) : null;
+    const title =
+      body.context?.sectionTitle || guide?.title || sectionId || "el inicio";
+    const blurb = body.context?.sectionBlurb;
+    const rutBit = body.context?.rutStep
+      ? ` Estás en el paso ${body.context.rutStep} del wizard RUT.`
+      : "";
+    const spoken = sectionId
+      ? `Estás en ${title}.${rutBit} ${
+          blurb || guide?.spoken || "Es una sección del portal de Agricultura."
+        } ¿Querés que te la explique con más detalle o ir a otra?`
+      : "Estás en el inicio de la demo. Pedime un cultivo, mapas o el RUT y te llevo. Si sos del equipo técnico, pedime la vista de ingeniería.";
+    appendTurn(sessionId, "assistant", spoken);
+    if (sectionId) setLastSection(sessionId, sectionId);
+    const event = sectionId
+      ? buildEvent(sessionId, "describe", sectionId, {
+          openLink: false,
+          click: true,
+        })
+      : buildEvent(sessionId, "go_home");
+    return withVoice(spoken, {
+      via: "local",
+      event,
+      action: sectionId ? "describe" : "go_home",
+    });
+  }
+
+  const catalogIntent = resolveCatalogIntent(text, originalText, {
+    lastSectionId: fresh.lastSectionId,
+    contextSectionId: body.context?.sectionId,
+    namedSectionId: namedSection?.id,
+    namesSection,
+    namedScore: namedSection?.score,
+  });
+  if (catalogIntent) {
+    const repeat =
+      catalogIntent.action === "describe" &&
+      hadRecentExplainAsk(fresh.turns);
+    const spoken =
+      repeat && catalogIntent.target
+        ? buildExplainReply(catalogIntent.target, { repeat: true })
+        : catalogIntent.reply;
+    appendTurn(sessionId, "assistant", spoken);
+    if (catalogIntent.target) {
+      setLastSection(sessionId, catalogIntent.target);
+    }
+    const event = buildEvent(
+      sessionId,
+      catalogIntent.action,
+      catalogIntent.target,
+      catalogIntent.payload
+    );
+    return withVoice(spoken, {
+      via: "local-catalog",
+      event,
+      action: catalogIntent.action,
+    });
+  }
+
   const brainInput = {
     text,
     originalText,
@@ -513,16 +596,7 @@ async function handleChat(req: NextRequest) {
     facts: fresh.facts,
   };
 
-  const isPageQuestion =
-    wantsPageLocation(text) || wantsExplainCurrentPage(text);
-  let intent = isPageQuestion
-    ? {
-        action: "describe" as const,
-        understood: true,
-        useGuide: false,
-        reply: "Reviso la sección actual.",
-      }
-    : resolveLocalIntent(text, originalText, fresh.turns);
+  let intent = resolveLocalIntent(text, originalText, fresh.turns);
 
   if (!intent) {
     intent =
@@ -593,7 +667,10 @@ async function handleChat(req: NextRequest) {
   }
 
   // Solo explicación del RUT (sin registro ni wizard de carga).
-  if (wantsRutExplainOnly(text)) {
+  if (
+    wantsRutExplainOnly(text) &&
+    !(namedSection && namesSection && namedSection.id !== "rut")
+  ) {
     const spoken =
       "El RUT es el Registro Único de Tierras de Mendoza. Para registrarte lo derivamos a WhatsApp: un agente valida datos, pide fotos y documentación (texto o audio). ¿Querés que te abra WhatsApp ahora?";
     appendTurn(sessionId, "assistant", spoken);
@@ -636,34 +713,6 @@ async function handleChat(req: NextRequest) {
   }
 
   intent = withNavigationDefaults(intent);
-
-  // Page awareness: "dónde estoy" / "explicame esto"
-  if (isPageQuestion) {
-    const sectionId =
-      body.context?.sectionId ||
-      mem.lastSectionId ||
-      (body.context?.pathname?.startsWith("/rut") ? "rut" : undefined) ||
-      (engineeringMode ? "ingenieria" : undefined);
-    const guide = sectionId ? buildSectionGuide(sectionId) : null;
-    const title =
-      body.context?.sectionTitle || guide?.title || sectionId || "el inicio";
-    const blurb = body.context?.sectionBlurb;
-    const rutBit = body.context?.rutStep
-      ? ` Estás en el paso ${body.context.rutStep} del wizard RUT.`
-      : "";
-    intent = withNavigationDefaults({
-      action: sectionId ? "describe" : "go_home",
-      target: sectionId,
-      understood: true,
-      useGuide: false,
-      payload: { openLink: false, click: Boolean(sectionId) },
-      reply: sectionId
-        ? `Estás en ${title}.${rutBit} ${
-            blurb || guide?.spoken || "Es una sección del portal de Agricultura."
-          } ¿Querés profundizar en esta sección o ir a otra?`
-        : "Estás en el inicio de la demo. Pedime un cultivo, mapas o el RUT y te llevo. Si sos del equipo técnico, pedime la vista de ingeniería.",
-    });
-  }
 
   const engineeringQ = resolveEngineeringQuestion(text, {
     inEngineeringView: engineeringMode,

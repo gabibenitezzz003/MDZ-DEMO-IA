@@ -107,7 +107,7 @@ describe("spectrumFeatures", () => {
 describe("stepVadGate calibration", () => {
   it("ignores everything while measuring the room", () => {
     const gate = createVadGate();
-    const early = run(gate, SPEECH, 400);
+    const early = run(gate, SPEECH, 220);
     expect(early.every((s) => !s.start && s.calibrating)).toBe(true);
   });
 
@@ -159,7 +159,7 @@ describe("stepVadGate utterance lifecycle", () => {
   it("discards an utterance that was mostly silence", () => {
     const gate = calibrated();
     // Apenas supera el onset y se corta: no hay voz suficiente para STT.
-    run(gate, SPEECH, 240);
+    run(gate, SPEECH, 120);
     const tail = run(gate, SILENCE, 2200);
     const closed = tail.find((s) => s.end || s.discard);
     expect(closed?.discard).toBe(true);

@@ -14,8 +14,8 @@ describe("transcribeWithSpeaches", () => {
       const form = init?.body as FormData;
       expect(form.get("model")).toBe("Systran/faster-whisper-small");
       expect(form.get("language")).toBe("es");
-      expect(String(form.get("hotwords"))).not.toContain("RUT");
-      expect(String(form.get("prompt"))).toMatch(/hola/i);
+      expect(String(form.get("hotwords"))).toMatch(/ciruela|mapas agr/i);
+      expect(String(form.get("prompt"))).toMatch(/agricultura/i);
       expect(form.get("vad_filter")).toBe("true");
       return new Response(JSON.stringify({ text: "quiero registrar el RUT" }), {
         status: 200,

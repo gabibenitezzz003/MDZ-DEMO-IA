@@ -53,6 +53,7 @@ const SHORT_COMMANDS = new Set([
   "oka",
   "dale",
   "hola",
+  "buenas",
   "rut",
   "qr",
   "odk",
@@ -91,16 +92,29 @@ export function isLikelyNoiseTranscript(raw: string): boolean {
 
   const words = t.split(" ").filter(Boolean);
   if (!words.length) return true;
+
+  // Saludos/comandos cortos válidos — antes que cortesías “bare” (buenas, hola).
+  if (words.length === 1) {
+    if (SHORT_COMMANDS.has(words[0])) return false;
+    if (words[0].length < 4) return true;
+  }
+
   if (words.every((w) => FILLER.test(w))) return true;
-  if (BARE_COURTESY.test(t)) return true;
   if (HALLUCINATION.some((re) => re.test(t))) return true;
+
+  // Cortesía sola sin contenido (gracias, chau, muchas gracias…).
+  if (BARE_COURTESY.test(t)) return true;
 
   // "gracias gracias gracias": el decoder repite cuando no hay señal.
   if (words.length >= 2 && new Set(words).size === 1) return true;
 
-  // Token suelto: pasa si es un comando conocido o una palabra con cuerpo.
-  if (words.length === 1) {
-    return !SHORT_COMMANDS.has(words[0]) && words[0].length < 4;
+  // Saludos compuestos válidos.
+  if (
+    /^(hola|buenas|buen dia|buenos dias|que tal|como estas|como andas)( .+)?$/.test(
+      t
+    )
+  ) {
+    return false;
   }
 
   return false;

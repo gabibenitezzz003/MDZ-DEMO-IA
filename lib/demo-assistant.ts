@@ -310,7 +310,11 @@ export function interpretUtterance(raw: string): AssistantIntent {
     };
   }
 
-  if (/duda|no entendi|explica|mas info|contame mas|que significa/.test(text)) {
+  if (
+    /^(no entendi|no entendí|tengo duda|mas info|más info|contame mas|contame más|que significa)\b/.test(
+      text
+    )
+  ) {
     return {
       action: "describe",
       understood: true,
@@ -368,12 +372,14 @@ export function interpretUtterance(raw: string): AssistantIntent {
       target: best.id,
       understood: true,
       payload: {
-        openLink: true,
+        openLink,
         click: true,
         url: best.externalUrl || officialUrlFor(best.id),
         related: hits.slice(1).map((h) => h.title),
       },
-      reply: `${spoken} Te abrí el recurso oficial en otra pestaña; yo sigo acá.`,
+      reply: openLink
+        ? `${spoken} Te abrí el recurso oficial en otra pestaña; yo sigo acá.`
+        : `${spoken} Si querés el recurso oficial, decime «abrime el sitio oficial».`,
     };
   }
 

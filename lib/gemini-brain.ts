@@ -178,7 +178,7 @@ async function callGemini(
   ];
 
   const controller = new AbortController();
-  const kill = setTimeout(() => controller.abort(), 6_000);
+  const kill = setTimeout(() => controller.abort(), 4_000);
   let res: Response;
   try {
     res = await fetch(
@@ -265,7 +265,7 @@ export async function interpretWithGemini(input: {
     try {
       let raw = await withTimeout(
         callGemini(apiKey, model, userPrompt, input.history),
-        4_000,
+        3_200,
         null
       );
       if (!raw) continue;

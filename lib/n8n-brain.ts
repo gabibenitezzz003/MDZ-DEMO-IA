@@ -143,9 +143,9 @@ export async function interpretFast(input: {
     process.env.USE_N8N_AS_BRAIN === "true" &&
     Boolean(process.env.N8N_WEBHOOK_URL?.trim());
 
-  const local = await withTimeout(input.local(), 5_500, null);
+  const local = await withTimeout(input.local(), 2_800, null);
   if (local) return local;
 
   if (!useN8n) return null;
-  return withTimeout(interpretWithN8n(input), 4_000, null);
+  return withTimeout(interpretWithN8n(input), 2_000, null);
 }

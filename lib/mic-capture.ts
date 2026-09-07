@@ -179,15 +179,13 @@ export type VadTuning = {
 };
 
 export const DEFAULT_VAD_TUNING: VadTuning = {
-  calibrationMs: 550,
-  // Corto a propósito: quien filtra ruido es la forma espectral, no el tiempo.
-  // Exigir más sólo agrega latencia al usuario sin agregar rechazo.
-  onsetMs: 120,
-  hangoverMs: 900,
-  shortUtteranceMs: 900,
-  shortHangoverMs: 1400,
-  minVoicedMs: 420,
-  minVoicedRatio: 0.32,
+  calibrationMs: 280,
+  onsetMs: 80,
+  hangoverMs: 720,
+  shortUtteranceMs: 1200,
+  shortHangoverMs: 980,
+  minVoicedMs: 180,
+  minVoicedRatio: 0.28,
   bargeMs: 340,
   maxLowRatio: 0.5,
 };
@@ -392,8 +390,15 @@ export function stepVadGate(
 
   gate.utteranceMs += dtMs;
   gate.silenceHoldMs += dtMs;
-  const neededSilence =
+  const baseHangover =
     gate.utteranceMs < t.shortUtteranceMs ? t.shortHangoverMs : t.hangoverMs;
+  // Frases largas: pausas entre ideas (p. ej. "explicame qué es" … "el RUT").
+  const neededSilence =
+    gate.utteranceMs > 2800
+      ? Math.max(baseHangover, 1900)
+      : gate.utteranceMs > 1600
+        ? Math.max(baseHangover, 1500)
+        : baseHangover;
   if (gate.silenceHoldMs < neededSilence) {
     return { ...IDLE, barge, calibrating };
   }

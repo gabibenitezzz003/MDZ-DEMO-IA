@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { transcribeWithElevenLabs } from "@/lib/elevenlabs-stt";
-import { transcribeWithGemini } from "@/lib/gemini-stt";
-import { transcribeWithSpeaches } from "@/lib/speaches-stt";
+import { transcribeAudio } from "@/lib/stt-transcribe";
 import { ApiSecurityError, secureApiRequest } from "@/lib/api-security";
 
 export const runtime = "nodejs";
@@ -17,6 +15,8 @@ export async function POST(req: NextRequest) {
     const body = (await req.json()) as {
       audioBase64?: string;
       mimeType?: string;
+      hint?: string;
+      lastSectionId?: string;
     };
     const audioBase64 = body.audioBase64?.trim();
     if (!audioBase64) {
@@ -43,42 +43,32 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (audio.length < 200) {
+    if (audio.length < 80) {
       return NextResponse.json({ ok: true, text: "", via: "empty" });
     }
 
-    const fromLocal = await transcribeWithSpeaches(audio, mimeType);
-    if (fromLocal) {
-      return NextResponse.json({
-        ok: true,
-        text: fromLocal,
-        via: "speaches-local",
-      });
-    }
+    const result = await transcribeAudio(audio, mimeType, {
+      hint: body.hint?.trim(),
+      lastSectionId: body.lastSectionId?.trim(),
+    });
 
-    const fromEleven = await transcribeWithElevenLabs(audio, mimeType);
-    if (fromEleven) {
+    if (!result?.text) {
+      const hasGemini = Boolean(process.env.GEMINI_API_KEY?.trim());
       return NextResponse.json({
         ok: true,
-        text: fromEleven,
-        via: "elevenlabs",
-      });
-    }
-
-    const fromGemini = await transcribeWithGemini(audio, mimeType);
-    if (fromGemini) {
-      return NextResponse.json({
-        ok: true,
-        text: fromGemini,
-        via: "gemini",
+        text: "",
+        via: "none",
+        error: hasGemini
+          ? "No pude transcribir el audio con Gemini"
+          : "Falta GEMINI_API_KEY en .env.local para transcribir voz",
       });
     }
 
     return NextResponse.json({
       ok: true,
-      text: "",
-      via: "none",
-      error: "No pude transcribir el audio",
+      text: result.text,
+      via: result.via,
+      heardAs: result.heardAs,
     });
   } catch (err) {
     console.error("STT route error", err);

@@ -130,7 +130,7 @@ export class ElevenLabsVoiceEngine implements VoiceEngine {
         return;
       }
       this.fallbackSpeak(text, onEnd, myGen);
-      this.onError?.(`ElevenLabs error: ${String(err)}`);
+      this.onError?.("No pude reproducir la voz.");
     }
   }
 

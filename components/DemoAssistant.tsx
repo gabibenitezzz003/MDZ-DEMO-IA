@@ -2273,7 +2273,7 @@ export function DemoAssistant() {
               </button>
             ) : (
               <span className="font-medium text-slate-400">
-                Voz institucional · Gemini · Mendoza
+                Voz institucional · Mendoza
               </span>
             )}
           </div>

@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({
         ok: true,
         audioBase64: null,
-        ttsFallbackReason: lastTtsFailure() ?? "Sin audio de ElevenLabs.",
+        ttsFallbackReason: lastTtsFailure() ?? "Sin audio de voz.",
       });
     }
     return NextResponse.json({

@@ -35,6 +35,17 @@ const SUGGESTIONS = [
 
 const WHATSAPP_SUGGESTION = "Quiero el RUT por WhatsApp";
 
+function voiceErrorForUser(raw: string): string {
+  if (/STT: network/i.test(raw)) return raw;
+  if (/TTS|voz|audio/i.test(raw)) {
+    return "No pude reproducir la voz. Probá de nuevo.";
+  }
+  if (/STT|dictado|transcri/i.test(raw)) {
+    return "No te escuché bien. Probá de nuevo.";
+  }
+  return "Algo falló. Probá de nuevo.";
+}
+
 export function VoiceAssistant() {
   const sessionId = useSessionId();
   const sessionReady = useSessionReady();
@@ -79,7 +90,7 @@ export function VoiceAssistant() {
       engineRef.current = createVoiceEngine(voiceRuntimeFromEnv());
       engineRef.current.onStateChange = (s) => setListening(s.listening);
       engineRef.current.onError = (err) =>
-        setLog((prev) => [...prev, { role: "assistant", text: err }]);
+        setLog((prev) => [...prev, { role: "assistant", text: voiceErrorForUser(err) }]);
     }
     engineRef.current?.resumeAudioContext?.();
     engineRef.current?.startListening();
@@ -373,7 +384,7 @@ export function VoiceAssistant() {
         }, 500);
         return;
       }
-      setLog((prev) => [...prev, { role: "assistant", text: err }]);
+      setLog((prev) => [...prev, { role: "assistant", text: voiceErrorForUser(err) }]);
     };
   }, [handleText, rejectHeard, stopSpeaking, triggerBargeCut]);
 
@@ -446,7 +457,6 @@ export function VoiceAssistant() {
         <div className="w-80 overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-2xl sm:w-96">
           <div className="border-b border-slate-200 bg-mza-blue px-4 py-3 text-white">
             <p className="font-semibold">Asistente de voz</p>
-            <p className="text-[11px] opacity-80">Runtime: {voiceRuntimeFromEnv()}</p>
           </div>
           <div
             ref={containerRef}

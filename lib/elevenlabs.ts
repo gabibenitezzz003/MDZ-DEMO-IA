@@ -127,10 +127,10 @@ async function synthesizeSpeechOnce(
     // que alguien lo escucha en vivo. Dejamos el motivo explícito.
     lastFailure =
       /quota_exceeded/.test(errText)
-        ? "ElevenLabs sin créditos (quota_exceeded): la voz cae al navegador."
+        ? "Sin créditos de voz: fallback al navegador."
         : res.status === 401
-          ? "ElevenLabs rechazó la API key (401)."
-          : `ElevenLabs respondió ${res.status}.`;
+          ? "Credencial de voz inválida (401)."
+          : `Servicio de voz respondió ${res.status}.`;
     console.error("ElevenLabs TTS failed", res.status, errText.slice(0, 300));
     if (quality === "narration" && modelId !== chatModel) {
       return synthesizeSpeechOnce(text, { quality: "chat" });

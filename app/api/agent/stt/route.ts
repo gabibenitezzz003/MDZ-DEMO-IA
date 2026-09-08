@@ -53,14 +53,11 @@ export async function POST(req: NextRequest) {
     });
 
     if (!result?.text) {
-      const hasGemini = Boolean(process.env.GEMINI_API_KEY?.trim());
       return NextResponse.json({
         ok: true,
         text: "",
         via: "none",
-        error: hasGemini
-          ? "No pude transcribir el audio con Gemini"
-          : "Falta GEMINI_API_KEY en .env.local para transcribir voz",
+        error: "No pude transcribir el audio",
       });
     }
 

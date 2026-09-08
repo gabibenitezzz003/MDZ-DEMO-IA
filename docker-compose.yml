@@ -5,6 +5,8 @@ services:
       args:
         NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://demo-agricultura.tuempresa.com}
         NEXT_PUBLIC_USE_DOGRAH: ${NEXT_PUBLIC_USE_DOGRAH:-false}
+        NEXT_PUBLIC_VOICE_RUNTIME: ${NEXT_PUBLIC_VOICE_RUNTIME:-elevenlabs}
+        NEXT_PUBLIC_LEGACY_VOICE_ASSISTANT: ${NEXT_PUBLIC_LEGACY_VOICE_ASSISTANT:-false}
     image: demo-agricultura:latest
     restart: unless-stopped
     env_file:
@@ -16,8 +18,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      # Solo localhost: nginx (o el reverse proxy) habla con el mundo
-      - "127.0.0.1:3000:3000"
+      # Host 3100 en prod (3000 lo usa cima-ai-dev). El contenedor sigue en :3000.
+      - "127.0.0.1:${DEMO_HOST_PORT:-3100}:3000"
     # Una sola réplica: la memoria de chat/SSE vive en proceso
     deploy:
       replicas: 1

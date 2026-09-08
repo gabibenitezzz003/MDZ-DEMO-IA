@@ -8,7 +8,7 @@ El micrófono del navegador **exige HTTPS** (salvo localhost).
 ```
 Internet (HTTPS)
     → nginx (443) + Let's Encrypt
-        → Docker container Next.js (127.0.0.1:3000)
+        → Docker container Next.js (127.0.0.1:3100 → :3000 interno)
             → Gemini + ElevenLabs (salientes)
 ```
 
@@ -84,7 +84,7 @@ export NEXT_PUBLIC_SITE_URL=https://demo-agricultura.tuempresa.com
 docker compose build --build-arg NEXT_PUBLIC_SITE_URL=$NEXT_PUBLIC_SITE_URL
 docker compose up -d
 docker compose ps
-curl -I http://127.0.0.1:3000
+curl -I http://127.0.0.1:3100
 ```
 
 ## 4. nginx + HTTPS

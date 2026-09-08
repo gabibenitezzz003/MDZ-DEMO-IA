@@ -8,6 +8,7 @@ import {
   getMemory,
   mergePendingFields,
   mergePendingFieldsDetailed,
+  peekPreviousSection,
   mergeSessionFacts,
   popPreviousSection,
   setAwaitingFill,
@@ -15,8 +16,8 @@ import {
   setPendingOffer,
   setRutProgress,
 } from "@/lib/chat-memory";
-import { resolveCatalogIntent } from "@/lib/catalog-intent";
 import { interpretUtterance } from "@/lib/demo-assistant";
+import type { AssistantIntent } from "@/lib/demo-assistant";
 import { wantsGuidedTour } from "@/lib/demo-tour";
 import {
   isEngineeringPath,
@@ -30,7 +31,12 @@ import {
 } from "@/lib/form-extract";
 import { interpretWithGemini } from "@/lib/gemini-brain";
 import { interpretFast } from "@/lib/n8n-brain";
-import { catalog, findBestSections, officialUrlFor } from "@/lib/page-knowledge";
+import {
+  catalog,
+  findBestSections,
+  officialUrlFor,
+  wantsOpenLink,
+} from "@/lib/page-knowledge";
 import type { ClientPageContext } from "@/lib/page-context";
 import {
   ackAndAskNext,
@@ -45,7 +51,12 @@ import {
   wantsRutChecklist,
   wantsToPassRutData,
 } from "@/lib/rut-conversation";
-import { buildSectionGuide, buildExplainReply } from "@/lib/section-guide";
+import {
+  wantsPageLocation,
+  wantsPreviousSection,
+} from "@/lib/page-question";
+import { buildKnowledgeFallback } from "@/lib/brain-context";
+import { buildExplainReply, buildSectionGuide } from "@/lib/section-guide";
 import { ApiSecurityError, secureApiRequest } from "@/lib/api-security";
 import {
   classifyConversationMode,
@@ -59,12 +70,11 @@ import { displaySpoken, humanizeSpoken, prepareTourNarration } from "@/lib/spoke
 import { conflictSpoken } from "@/lib/field-merge";
 import { wantsOpenResource } from "@/lib/open-resource";
 import { isOfferConfirmation } from "@/lib/pending-offer";
-import {
-  hadRecentExplainAsk,
-  wantsPageLocation,
-} from "@/lib/page-question";
 import { looksIncompleteUtterance, incompleteContinuePrompt } from "@/lib/incomplete-utterance";
-import { correctSpeechTranscript } from "@/lib/stt-correct";
+import { resolveCatalogIntent } from "@/lib/catalog-intent";
+import { resolveContinuationIntent } from "@/lib/conversation-follow-up";
+import { correctSpeechTranscript, alignTranscriptToCatalog } from "@/lib/stt-correct";
+import { isAllowedOfficialUrl } from "@/lib/official-url";
 import type { AgentEvent } from "@/lib/types";
 import {
   campoSpoken,
@@ -244,32 +254,13 @@ function withNavigationDefaults(
     payload.openLink = false;
   }
   if (intent.action === "open_external") {
-    try {
-      const url = new URL(String(intent.target || payload.url || ""));
-      const allowed =
-        url.protocol === "https:" &&
-        (url.hostname === "mendoza.gov.ar" ||
-          url.hostname.endsWith(".mendoza.gov.ar") ||
-          url.hostname === "wa.me" ||
-          url.hostname === "whatsapp.com" ||
-          url.hostname.endsWith(".whatsapp.com"));
-      if (!allowed) {
-        return {
-          action: "describe",
-          target: "tramites",
-          reply:
-            "Ese enlace no está dentro de los sitios oficiales permitidos. Puedo ayudarte desde la demo o abrir un portal oficial de Mendoza.",
-          payload: { openLink: false },
-          understood: true,
-          useGuide: false,
-        };
-      }
-    } catch {
+    const url = String(intent.target || payload.url || "");
+    if (!isAllowedOfficialUrl(url)) {
       return {
         action: "describe",
         target: "tramites",
         reply:
-          "No pude validar ese enlace. Puedo ayudarte desde la demo o abrir un portal oficial de Mendoza.",
+          "No pude validar ese enlace. Tocá «Abrir sitio oficial» en el botón azul cuando aparezca, o pedime el portal de Agricultura de Mendoza.",
         payload: { openLink: false },
         understood: true,
         useGuide: false,
@@ -357,6 +348,40 @@ function resolveSpokenReply(
   return spoken;
 }
 
+function finishLocalIntent(
+  sessionId: string,
+  intent: AssistantIntent,
+  via = "local"
+) {
+  const resolved = withNavigationDefaults(intent)!;
+  const spoken = humanizeSpoken(resolveSpokenReply(resolved));
+  const event = buildEvent(
+    sessionId,
+    resolved.action,
+    resolved.target,
+    resolved.payload
+  );
+  if (
+    resolved.target &&
+    ["navigate", "describe", "highlight", "open_rut"].includes(resolved.action)
+  ) {
+    setLastSection(
+      sessionId,
+      resolved.action === "open_rut" ? "rut" : resolved.target
+    );
+  }
+  if (resolved.target === "rut" || resolved.payload?.sectionId === "rut") {
+    setPendingOffer(sessionId, "whatsapp_rut");
+  }
+  appendTurn(sessionId, "assistant", spoken);
+  return withVoice(spoken, {
+    via,
+    event,
+    action: resolved.action,
+    understood: resolved.understood !== false,
+  });
+}
+
 export async function POST(req: NextRequest) {
   try {
     return await handleChat(req);
@@ -413,20 +438,14 @@ async function handleChat(req: NextRequest) {
     return withVoice(spoken, { via: "tour-tts" });
   }
 
-  const corrected = correctSpeechTranscript(originalText);
-  const text = corrected.text;
   const mem = getMemory(sessionId);
+  const aligned = alignTranscriptToCatalog(originalText, {
+    lastSectionId: mem.lastSectionId,
+  });
+  const corrected = correctSpeechTranscript(aligned.text);
+  const text = corrected.text;
   appendTurn(sessionId, "user", text);
 
-  if (looksIncompleteUtterance(originalText) || looksIncompleteUtterance(text)) {
-    const spoken = incompleteContinuePrompt();
-    appendTurn(sessionId, "assistant", spoken);
-    return withVoice(spoken, { via: "local", understood: true });
-  }
-
-  // Sección nombrada de forma inequívoca en la frase ("mandame a fruticultura",
-  // "era durazno industria"). Un puntaje alto significa que el usuario dijo el
-  // nombre, no que se parezca de casualidad.
   const namedSection = findBestSections(text, 1)[0];
   const namesSection = Boolean(namedSection && namedSection.score >= 8);
 
@@ -455,7 +474,7 @@ async function handleChat(req: NextRequest) {
       return withVoice(spoken, { via: "local-context" });
     }
   }
-  const fresh = getMemory(sessionId);
+  const fresh = mem;
   const engineeringMode = isEngineeringPath(body.context?.pathname);
   const explicitRutOrWa =
     wantsRutWhatsAppHandoff(text) ||
@@ -498,7 +517,7 @@ async function handleChat(req: NextRequest) {
     (wantsGuidedTour(text) && engineeringMode)
   ) {
     const spoken =
-      "Dale, te recorro ingeniería: el tablero, el QR de Collect, el flujo de campo y los cinco formularios. Si querés frenarlo, decime parar demo.";
+      "Muy bien, te recorro ingeniería: el tablero, el QR de Collect, el flujo de campo y los cinco formularios. Si querés frenarlo, decime parar demo.";
     appendTurn(sessionId, "assistant", spoken);
     return withVoice(spoken, { via: "local", startTour: "engineering" });
   }
@@ -515,7 +534,7 @@ async function handleChat(req: NextRequest) {
 
   if (wantsGuidedTour(text)) {
     const spoken =
-      "Dale, arranco el recorrido del productor: un cultivo, herramientas, autoridades, precios, el QR de ODK y el RUT. Si querés frenarlo, decime parar demo.";
+      "Muy bien, arranco el recorrido del productor: un cultivo, herramientas, autoridades, precios, el QR de ODK y el RUT. Si querés frenarlo, decime parar demo.";
     appendTurn(sessionId, "assistant", spoken);
     return withVoice(spoken, { via: "local", startTour: "producer" });
   }
@@ -553,6 +572,40 @@ async function handleChat(req: NextRequest) {
     });
   }
 
+  const continuationMem = getMemory(sessionId);
+  const continuationOpts = {
+    lastSectionId: continuationMem.lastSectionId,
+    turns: continuationMem.turns,
+    pendingOffer: continuationMem.pendingOffer,
+  };
+  const continuation =
+    resolveContinuationIntent(originalText, continuationOpts) ??
+    resolveContinuationIntent(text, continuationOpts);
+  if (continuation) {
+    return finishLocalIntent(sessionId, continuation);
+  }
+
+  // WhatsApp RUT antes del catálogo local: evita navigate+SIA cuando piden registro.
+  if (
+    !wantsListeningCheck(text) &&
+    !wantsRutDemoWizard(text) &&
+    wantsRutWhatsAppHandoff(text)
+  ) {
+    const wa = buildWhatsAppRutUrl();
+    const spoken = whatsAppRutSpoken(Boolean(wa));
+    appendTurn(sessionId, "assistant", spoken);
+    const event = buildEvent(sessionId, "open_whatsapp", wa || undefined, {
+      alsoNavigate: true,
+      sectionId: "rut",
+      whatsappUrl: wa || undefined,
+    });
+    return withVoice(spoken, {
+      via: "local",
+      event,
+      action: "open_whatsapp",
+    });
+  }
+
   const catalogIntent = resolveCatalogIntent(text, originalText, {
     lastSectionId: fresh.lastSectionId,
     contextSectionId: body.context?.sectionId,
@@ -561,29 +614,18 @@ async function handleChat(req: NextRequest) {
     namedScore: namedSection?.score,
   });
   if (catalogIntent) {
-    const repeat =
-      catalogIntent.action === "describe" &&
-      hadRecentExplainAsk(fresh.turns);
-    const spoken =
-      repeat && catalogIntent.target
-        ? buildExplainReply(catalogIntent.target, { repeat: true })
-        : catalogIntent.reply;
-    appendTurn(sessionId, "assistant", spoken);
-    if (catalogIntent.target) {
-      setLastSection(sessionId, catalogIntent.target);
-    }
-    const event = buildEvent(
-      sessionId,
-      catalogIntent.action,
-      catalogIntent.target,
-      catalogIntent.payload
-    );
-    return withVoice(spoken, {
-      via: "local-catalog",
-      event,
-      action: catalogIntent.action,
-    });
+    return finishLocalIntent(sessionId, catalogIntent);
   }
+
+  if (looksIncompleteUtterance(originalText) || looksIncompleteUtterance(text)) {
+    const spoken = incompleteContinuePrompt();
+    appendTurn(sessionId, "assistant", spoken);
+    return withVoice(spoken, { via: "local", understood: true });
+  }
+
+  // El catálogo local se deja como fallback únicamente; ahora el modelo
+  // maneja el hilo y la conversación para respuestas más inteligentes.
+  // catalog-intent sigue disponible para tests y para usarse en interpretUtterance.
 
   const brainInput = {
     text,
@@ -598,13 +640,47 @@ async function handleChat(req: NextRequest) {
 
   let intent = resolveLocalIntent(text, originalText, fresh.turns);
 
+  // Referencia al tema anterior: usamos el historial de secciones.
+  if (!intent && wantsPreviousSection(originalText)) {
+    const prev = peekPreviousSection(sessionId);
+    if (prev) {
+      const guide = buildSectionGuide(prev);
+      intent = {
+        action: "describe",
+        target: prev,
+        understood: true,
+        useGuide: false,
+        payload: { openLink: false, click: true },
+        reply:
+          guide?.spoken ??
+          `Volvimos a ${prev.replace(/-/g, " ")}. ¿Querés que profundice en este tema?`,
+      };
+    }
+  }
+
   if (!intent) {
+    const mode = classifyConversationMode(originalText);
+    let fallback: AssistantIntent;
+    if (mode === "ask" || mode === "explain") {
+      const hit = findBestSections(text, 1)[0];
+      fallback = {
+        action: "describe",
+        target:
+          hit?.id || body.context?.sectionId || fresh.lastSectionId,
+        understood: true,
+        useGuide: false,
+        payload: { openLink: false, click: true },
+        reply: buildKnowledgeFallback(brainInput),
+      };
+    } else {
+      fallback = interpretUtterance(text);
+    }
     intent =
       (await interpretFast({
         sessionId,
         ...brainInput,
         local: () => interpretWithGemini(brainInput),
-      })) ?? interpretUtterance(text);
+      })) ?? fallback;
 
     // El modelo ya vio historial y contexto de página: solo lo descartamos
     // cuando el texto no admite otra lectura (saludo, prueba de mic, eco).
@@ -613,10 +689,9 @@ async function handleChat(req: NextRequest) {
     }
   }
 
-  // Si el usuario nombró una sección y la intención apunta a otra, gana la
-  // nombrada. El caso que rompía: pedir "mandame a fruticultura" y recibir la
-  // descripción de la sección anterior, porque el destino quedaba pegado al
-  // último visitado. Corrige el destino, nunca el texto del modelo.
+  // Si el usuario nombró una sección inequívoca y el modelo apuntó a otra,
+  // corregimos el destino, pero conservamos el reply del modelo para no perder
+  // el hilo de la conversación.
   if (
     namedSection &&
     namesSection &&
@@ -625,17 +700,15 @@ async function handleChat(req: NextRequest) {
       intent.action
     )
   ) {
+    const mode = classifyConversationMode(originalText);
     const soloExplicar =
-      classifyConversationMode(originalText) === "explain" ||
-      classifyConversationMode(originalText) === "ask";
+      mode === "explain" || mode === "ask" || intent.action === "describe";
     intent = {
       ...intent,
       action: soloExplicar ? "describe" : "navigate",
       target: namedSection.id,
       understood: true,
       payload: { ...(intent.payload ?? {}), sectionId: namedSection.id },
-      // El texto del modelo describía otra sección: acá ya no sirve.
-      reply: namedSection.spoken || intent.reply,
       useGuide: false,
     };
   }
@@ -688,9 +761,7 @@ async function handleChat(req: NextRequest) {
   if (
     !wantsListeningCheck(text) &&
     !wantsRutDemoWizard(text) &&
-    (wantsRutWhatsAppHandoff(text) ||
-      intent.action === "open_whatsapp" ||
-      intent.action === "open_rut")
+    (wantsRutWhatsAppHandoff(text) || intent.action === "open_whatsapp")
   ) {
     const wa = buildWhatsAppRutUrl();
     const spoken = whatsAppRutSpoken(Boolean(wa));
@@ -712,7 +783,78 @@ async function handleChat(req: NextRequest) {
     mergeSessionFacts(sessionId, remember as Record<string, string>);
   }
 
+  if (!intent) {
+    intent = interpretUtterance(text);
+  }
+
   intent = withNavigationDefaults(intent);
+  if (!intent) {
+    intent = interpretUtterance(text);
+  }
+
+  // Actualizar la sección actual para referencias del tipo "esta", "la anterior".
+  if (
+    intent!.target &&
+    catalog.sections.some((s) => s.id === intent!.target) &&
+    ["navigate", "highlight", "describe"].includes(intent!.action)
+  ) {
+    setLastSection(sessionId, intent!.target);
+  } else if (
+    intent!.payload?.sectionId &&
+    typeof intent!.payload.sectionId === "string"
+  ) {
+    setLastSection(sessionId, intent!.payload.sectionId);
+  }
+
+  // Si estamos en RUT, dejamos pendiente la oferta de WhatsApp.
+  if (
+    (intent!.target === "rut" || intent!.payload?.sectionId === "rut") &&
+    ["navigate", "highlight", "describe"].includes(intent!.action)
+  ) {
+    setPendingOffer(sessionId, "whatsapp_rut");
+  }
+
+  // No abrir el sitio oficial si el usuario solo preguntó por la sección.
+  const mode = classifyConversationMode(originalText);
+  const askedNavigate = mode === "navigate";
+  if (
+    askedNavigate &&
+    intent.action === "describe" &&
+    namedSection &&
+    namesSection &&
+    !wantsOpenLink(originalText)
+  ) {
+    intent = {
+      ...intent,
+      action: "navigate",
+      target: namedSection.id,
+      payload: {
+        ...(intent.payload ?? {}),
+        openLink: false,
+        click: true,
+        sectionId: namedSection.id,
+      },
+    };
+  }
+  const userWantsExternal =
+    wantsOpenLink(originalText) ||
+    wantsOpenResource(originalText) ||
+    wantsOpenResource(text) ||
+    intent.payload?.openLink === true ||
+    intent.payload?.redirect === true;
+  if (
+    (intent.action === "open_external" ||
+      (intent.action === "navigate" && mode === "ask" && !askedNavigate)) &&
+    !userWantsExternal &&
+    intent.payload?.sectionId
+  ) {
+    intent = {
+      ...intent,
+      action: "describe",
+      target: String(intent.payload.sectionId),
+      payload: { ...(intent.payload ?? {}), openLink: false, click: true },
+    };
+  }
 
   const engineeringQ = resolveEngineeringQuestion(text, {
     inEngineeringView: engineeringMode,
@@ -856,8 +998,14 @@ async function handleChat(req: NextRequest) {
 
   const mentionedDocs = extractMentionedDocs(originalText);
 
+  const explicitResource =
+    wantsOpenResource(originalText) ||
+    wantsOpenResource(text) ||
+    (wantsOpenLink(originalText) &&
+      namedSection &&
+      namedSection.id !== "rut");
   if (
-    wantsOpenResource(text) &&
+    explicitResource &&
     intent.action !== "open_rut" &&
     intent.action !== "fill_form" &&
     intent.action !== "ask_confirm" &&
@@ -908,12 +1056,12 @@ async function handleChat(req: NextRequest) {
       // El bloque resuelve la URL, no el diálogo: si el modelo ya redactó una
       // respuesta, se respeta. Reescribirla era lo que hacía que el asistente
       // narrara una acción distinta de la que el usuario había pedido.
-      reply: /(no se abrio|no se abrió|no abrio|no abrió|no aparecio|no apareció)/.test(
+      reply: /(no se abrio|no se abrió|no abrio|no abrió|no aparecio|no apareció|no se pudo abrir|se abrio nada|se abrió nada)/.test(
         text
       )
         ? "Perdón: a veces el navegador bloquea la ventana. Tocá el botón azul «Abrir sitio oficial» abajo a la izquierda; con ese toque sí abre. Yo sigo acá."
         : intent.reply?.trim() ||
-          `Dale, te abro el recurso oficial${sectionId ? ` de ${sectionId.replace(/-/g, " ")}` : ""} en otra pestaña. Si no aparece, tocá «Abrir sitio oficial». Yo sigo acá.`,
+          `Listo. Tocá el botón azul «Abrir sitio oficial» abajo a la izquierda para ir al portal real${sectionId ? ` de ${sectionId.replace(/-/g, " ")}` : ""}. Yo sigo acá en la demo.`,
     };
   }
 
@@ -1289,6 +1437,10 @@ async function handleChat(req: NextRequest) {
           `Volvemos a ${prev.replace(/-/g, " ")}. ¿Seguimos desde acá?`,
       };
     }
+  }
+
+  if (intent.action === "open_external" || intent.action === "open_whatsapp") {
+    intent = withNavigationDefaults(intent)!;
   }
 
   const spoken = humanizeSpoken(resolveSpokenReply(intent));

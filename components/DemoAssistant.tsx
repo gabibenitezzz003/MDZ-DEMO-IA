@@ -352,6 +352,7 @@ export function DemoAssistant() {
   const bargeArmedRef = useRef(false);
   const bargeInFlightRef = useRef(false);
   const interruptedRef = useRef(false);
+  const speakWaiterRef = useRef<(() => void) | null>(null);
   const interruptNowRef = useRef<() => void>(() => undefined);
   const tourCropIdRef = useRef<string>("ciruela");
   const tourOfficialUrlRef = useRef<string>(OFFICIAL_PORTAL);
@@ -544,6 +545,8 @@ export function DemoAssistant() {
     genIdRef.current += 1;
     busyRef.current = false;
     setBusy(false);
+    speakWaiterRef.current?.();
+    speakWaiterRef.current = null;
     stopAudio();
     speakingRef.current = false;
     setSpeakingUi(false);
@@ -641,7 +644,7 @@ export function DemoAssistant() {
           {
             role: "assistant",
             text:
-              data.error.includes("GEMINI_API_KEY") || data.error.includes("Falta")
+              data.error?.includes("GEMINI_API_KEY") || data.error?.includes("Falta")
                 ? "Para transcribir voz necesitás GEMINI_API_KEY en .env.local. Reiniciá npm run dev después de agregarla."
                 : "No te escuché bien. Probá de nuevo: decí «hola» cerca del micrófono.",
           },
@@ -1066,9 +1069,11 @@ export function DemoAssistant() {
     setInterim("");
     bargeArmedRef.current = false;
     bargeInFlightRef.current = false;
-    disposeRecognition(true);
-    if (!serverMicRef.current) setListening(false);
-  }, [disposeRecognition]);
+    // Mantener STT activo para barge-in: no disposeRecognition acá.
+    if (serverMicRef.current || recognitionRef.current) {
+      setListening(true);
+    }
+  }, []);
 
   const resumeListeningAfterSpeech = useCallback(() => {
     speakingRef.current = false;
@@ -1177,8 +1182,6 @@ export function DemoAssistant() {
       },
     ]);
   }, [hardStopSession]);
-
-  const speakWaiterRef = useRef<(() => void) | null>(null);
 
   const speakLine = useCallback(
     (spoken: string, audioBase64?: string, audioMime?: string, genId?: number) =>

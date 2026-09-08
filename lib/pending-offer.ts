@@ -25,6 +25,10 @@ const AFIRMA =
 const ABRIR_PRONOMBRE =
   /\b(abri|abre|abrir|mostra|muestra|manda|pasa)(me|te|se)?(lo|la|me)?\b/;
 
+/** Pedir explícitamente lo que se acaba de ofrecer: "dime el WhatsApp". */
+const PEDIR_OFERTA =
+  /\b(dime|decime|pasame|mandame|dame|mostrame|muestrame|abril)\b.{0,12}\b(whatsapp|wsp|wasap)\b/;
+
 const NIEGA =
   /\b(no|nop|nah|todavia no|ahora no|mejor no|despues|luego|cancela|cancelar|olvidalo|dejalo)\b/;
 
@@ -38,6 +42,7 @@ export function isOfferConfirmation(raw: string): boolean {
   if (!t) return false;
   if (isOfferRejection(t)) return false;
   if (AFIRMA.test(t)) return true;
+  if (PEDIR_OFERTA.test(t)) return true;
 
   // Frases cortas de confirmación: "vale abrimelo por favor", "dale abrilo".
   const sinCortesia = t.replace(CORTESIA, " ").replace(/\s+/g, " ").trim();

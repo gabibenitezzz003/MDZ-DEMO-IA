@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { DemoAssistant } from "@/components/DemoAssistant";
 import { DemoBanner } from "@/components/DemoBanner";
+import { VoiceAssistant } from "@/components/VoiceAssistant";
 import { Footer } from "@/components/Footer";
 import { Header } from "@/components/Header";
 import { OfficialToast } from "@/components/OfficialToast";
@@ -46,7 +47,8 @@ export default function RootLayout({
           <ResourceViewerHost />
           <OfficialToast />
           <VoiceAssistantBridge />
-          <DemoAssistant />
+          <VoiceAssistant />
+          {process.env.NEXT_PUBLIC_LEGACY_VOICE_ASSISTANT === "true" && <DemoAssistant />}
         </SessionProvider>
       </body>
     </html>

@@ -1,8 +1,44 @@
 import { withTimeout } from "@/lib/async-timeout";
 
 const DEFAULT_VOICE_ID = "h60rOzgfLmYsntfqgGu2";
-const DEFAULT_CHAT_MODEL = "eleven_flash_v2_5";
+const DEFAULT_CHAT_MODEL = "eleven_turbo_v2_5";
 const DEFAULT_NARRATION_MODEL = "eleven_multilingual_v2";
+
+type VoiceSettings = {
+  stability: number;
+  similarity_boost: number;
+  use_speaker_boost: boolean;
+  style?: number;
+  speed?: number;
+};
+
+const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
+  stability: 0.7,
+  similarity_boost: 0.75,
+  style: 0.12,
+  use_speaker_boost: true,
+  speed: 0.98,
+};
+
+const NARRATION_VOICE_SETTINGS: VoiceSettings = {
+  stability: 0.74,
+  similarity_boost: 0.72,
+  use_speaker_boost: true,
+};
+
+function parseVoiceSettings(raw?: string): VoiceSettings {
+  if (!raw?.trim()) return DEFAULT_VOICE_SETTINGS;
+  try {
+    const parsed = JSON.parse(raw) as Partial<VoiceSettings>;
+    return {
+      ...DEFAULT_VOICE_SETTINGS,
+      ...parsed,
+      use_speaker_boost: parsed.use_speaker_boost ?? true,
+    };
+  } catch {
+    return DEFAULT_VOICE_SETTINGS;
+  }
+}
 
 export type TtsQuality = "chat" | "narration";
 
@@ -45,23 +81,12 @@ async function synthesizeSpeechOnce(
 
   const latency =
     quality === "narration" ? "0" : "3";
-  // Narración: más estable y lenta. Evitamos "style/speed" en multilingual
-  // porque algunos modelos los rechazan y el audio cae al fallback del browser.
-  // Voz neutra/profesional: más estabilidad, menos estilo expresivo.
-  const voice_settings =
+
+  const userSettings = parseVoiceSettings(process.env.ELEVENLABS_VOICE_SETTINGS);
+  const voice_settings: VoiceSettings =
     quality === "narration"
-      ? {
-          stability: 0.74,
-          similarity_boost: 0.72,
-          use_speaker_boost: true,
-        }
-      : {
-          stability: 0.7,
-          similarity_boost: 0.75,
-          style: 0.12,
-          use_speaker_boost: true,
-          speed: 0.98,
-        };
+      ? { ...userSettings, ...NARRATION_VOICE_SETTINGS }
+      : userSettings;
 
   const controller = new AbortController();
   const kill = setTimeout(

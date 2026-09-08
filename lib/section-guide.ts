@@ -50,7 +50,7 @@ const SPOKEN: Record<string, string> = {
   "economia-regional":
     "Esta es economía regional: informes y análisis agropecuarios de Mendoza. Si querés después te llevo a un cultivo puntual o a precios.",
   "manejo-hidrico":
-    "Acá está manejo hídrico: información sobre el uso del agua en los sistemas productivos. En Mendoza esto es clave por el riego.",
+    "Esta sección reúne publicaciones oficiales sobre manejo hídrico: uso del agua en sistemas productivos, riego y gestión del recurso en Mendoza. Si querés más detalle, preguntame qué aspecto te interesa.",
   fruticultura:
     "Esta es fruticultura. Desde acá se despliegan los cultivos frutícolas: durazno industria, ciruela, cereza, vid y fenología.",
   horticultura:
@@ -62,7 +62,7 @@ const SPOKEN: Record<string, string> = {
   durazno:
     "Acá está durazno industria. En el portal oficial hay informes, tableros e índices tecnológicos. Si te sirve, después te muestro ciruela o tomate industria, que también son cadenas fuertes.",
   ciruela:
-    "Dale, te llevo a ciruela y te abro el oficial: ahí están informes, pronóstico de cosecha y reportes. Yo sigo acá. ¿Después durazno o fenología?",
+    "Muy bien, te llevo a ciruela y te abro el oficial: ahí están informes, pronóstico de cosecha y reportes. Yo sigo acá. ¿Después durazno o fenología?",
   cereza:
     "Acá está cereza: información productiva y reportes del cultivo. Puedo llevarte también a ciruela o al calendario fenológico.",
   vid: "Esta es vid. Hay información de viticultura y se cruza mucho con heladas, agrometeorología y fenología. Decime si querés ir a alguna de esas.",
@@ -70,7 +70,7 @@ const SPOKEN: Record<string, string> = {
     "Esta es fenología: los estadios del cultivo a lo largo del año. Sirve para ciruela, durazno, vid y también para hortalizas.",
   "cultivos-horticolas":
     "Esta es la zona hortícola. Los más pedidos son ajo, tomate industria y cinturón verde.",
-  ajo: "Dale, te llevo a ajo y te abro el oficial con informes y datos productivos. Yo sigo acá. ¿Después tomate industria o precios?",
+  ajo: "Muy bien, te llevo a ajo y te abro el oficial con informes y datos productivos. Yo sigo acá. ¿Después tomate industria o precios?",
   tomate:
     "Acá está tomate industria. En el portal hay informes y datos de esa cadena. También te puedo mostrar durazno industria, que se parece en la lógica de procesamiento.",
   "cinturon-verde":

@@ -14,6 +14,7 @@ import {
   wantsScroll,
 } from "@/lib/page-knowledge";
 import { buildSectionGuide } from "@/lib/section-guide";
+import { buildKnowledgeFallback } from "@/lib/brain-context";
 import type { AgentAction } from "@/lib/types";
 import {
   buildWhatsAppRutUrl,
@@ -175,7 +176,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
         url: officialUrlFor("ajo"),
       },
       reply:
-        "Dale, te llevo a ajo y te abro la ficha oficial: ahí están informes y datos productivos. Yo sigo acá. ¿Después tomate industria o precios?",
+        "Muy bien, te llevo a ajo y te abro la ficha oficial: ahí están informes y datos productivos. Yo sigo acá. ¿Después tomate industria o precios?",
     };
   }
 
@@ -203,7 +204,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       action: "go_forward",
       understood: true,
       useGuide: false,
-      reply: "Dale, avanzo al siguiente recurso del visor.",
+      reply: "Muy bien, avanzo al siguiente recurso del visor.",
     };
   }
 
@@ -284,7 +285,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
       useGuide: false,
       payload: { openLink: false, click: true },
       reply:
-        "Dale, te llevo a la sección del RUT. Ahí ves de qué se trata el Registro Único de Tierras. Si querés registrarte, decime y te abro WhatsApp.",
+        "Muy bien, te llevo a la sección del RUT. Ahí ves de qué se trata el Registro Único de Tierras. Si querés registrarte, decime y te abro WhatsApp.",
     };
   }
 
@@ -354,7 +355,7 @@ export function interpretUtterance(raw: string): AssistantIntent {
     const spoken =
       guide?.spoken ??
       best.spoken ??
-      `Dale, te llevo a ${best.title}.`;
+      `Muy bien, te llevo a ${best.title}.`;
 
     if (openLink) {
       const url = best.externalUrl || officialUrlFor(best.id);
@@ -385,9 +386,8 @@ export function interpretUtterance(raw: string): AssistantIntent {
 
   return {
     action: "describe",
-    understood: false,
+    understood: true,
     useGuide: false,
-    reply:
-      "No lo seguí del todo. ¿Buscás el RUT, un cultivo (ajo, ciruela…), mapas o clima? Decime en una frase y lo resolvemos.",
+    reply: buildKnowledgeFallback({ text, originalText: raw, history: [] }),
   };
 }

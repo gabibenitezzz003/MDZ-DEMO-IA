@@ -3,7 +3,11 @@ import { publish } from "@/lib/agent-bus";
 import { buildSectionGuide } from "@/lib/section-guide";
 import { isValidSectionId } from "@/lib/section-ids";
 import type { AgentAction, AgentActionRequest, AgentEvent } from "@/lib/types";
-import { ApiSecurityError, secureApiRequest } from "@/lib/api-security";
+import {
+  ApiSecurityError,
+  secureApiRequest,
+} from "@/lib/api-security";
+import { isAllowedOfficialUrl } from "@/lib/official-url";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,19 +33,7 @@ const ACTIONS: AgentAction[] = [
 const SCROLL_TARGETS = ["up", "down", "top", "bottom"];
 
 function allowedExternalUrl(raw: unknown) {
-  try {
-    const url = new URL(String(raw || ""));
-    if (url.protocol !== "https:") return false;
-    return (
-      url.hostname === "wa.me" ||
-      url.hostname === "whatsapp.com" ||
-      url.hostname.endsWith(".whatsapp.com") ||
-      url.hostname === "mendoza.gov.ar" ||
-      url.hostname.endsWith(".mendoza.gov.ar")
-    );
-  } catch {
-    return false;
-  }
+  return isAllowedOfficialUrl(raw);
 }
 
 export async function POST(req: NextRequest) {

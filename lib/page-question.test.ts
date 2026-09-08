@@ -6,6 +6,7 @@ import {
   wantsExplainCurrentPage,
   wantsExplainFollowUp,
   wantsExplainNamedSection,
+  wantsPageCapabilities,
   wantsPageLocation,
 } from "@/lib/page-question";
 
@@ -54,6 +55,15 @@ describe("page-aware voice questions", () => {
   it("matches named section explain phrasing", () => {
     expect(wantsExplainNamedSection("explicame que hace frutos secos")).toBe(
       true
+    );
+  });
+
+  it("understands what can I do on this page (brain-first, not hardcoded)", () => {
+    expect(
+      wantsPageCapabilities("¿Me podrías explicar qué puedo hacer en esta página?")
+    ).toBe(true);
+    expect(wantsAnyExplain("¿Me podrías explicar qué puedo hacer en esta página?")).toBe(
+      false
     );
   });
 });

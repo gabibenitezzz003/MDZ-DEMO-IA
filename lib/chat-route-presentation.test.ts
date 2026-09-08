@@ -178,5 +178,81 @@ describe("chat route presentation actions", () => {
       /ingenier|tablero|formulario|collect/i
     );
   });
+
+  it("navigates to economía regional when the user asks to be taken there", async () => {
+    const req = new Request("http://localhost/api/agent/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "test-nav-economia",
+        text: "me podrias llevar a la parte de economia regional por favor",
+        context: { pathname: "/" },
+      }),
+    });
+    const response = await POST(req as never);
+    const data = await response.json();
+
+    expect(data.ok).toBe(true);
+    expect(data.event).toMatchObject({
+      action: "navigate",
+      target: "economia-regional",
+      payload: { openLink: false, click: true },
+    });
+  });
+
+  it("explains what the user can do on the demo page", async () => {
+    const req = new Request("http://localhost/api/agent/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: "test-page-capabilities",
+        text: "me podrias explicar que puedo hacer en esta pagina",
+        context: { pathname: "/" },
+      }),
+    });
+    const response = await POST(req as never);
+    const data = await response.json();
+
+    expect(data.ok).toBe(true);
+    expect(String(data.reply || data.spoken)).toMatch(
+      /demo|portal|cultivos|RUT|mapas|Agricultura/i
+    );
+    expect(String(data.reply || data.spoken)).not.toMatch(
+      /no lo segu[ií] del todo/i
+    );
+  });
+
+  it("continues RUT explanation after sí explícame", async () => {
+    const sessionId = "test-rut-continuation";
+    const seed = new Request("http://localhost/api/agent/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        text: "qué es el rut",
+        context: { pathname: "/" },
+      }),
+    });
+    await POST(seed as never);
+
+    const follow = new Request("http://localhost/api/agent/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId,
+        text: "sí por favor explícame",
+        context: { pathname: "/" },
+      }),
+    });
+    const response = await POST(follow as never);
+    const data = await response.json();
+
+    expect(data.ok).toBe(true);
+    expect(data.event?.target).toBe("rut");
+    expect(String(data.reply || data.spoken)).not.toMatch(
+      /no lo segu[ií] del todo/i
+    );
+    expect(String(data.reply || data.spoken)).toMatch(/rut|registro|tierras/i);
+  });
 });
 

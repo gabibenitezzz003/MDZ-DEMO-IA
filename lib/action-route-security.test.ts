@@ -26,4 +26,13 @@ describe("external agent actions", () => {
     );
     expect(response.status).toBe(200);
   });
+
+  it("allows sitios.mendoza.gob.ar", async () => {
+    const response = await POST(
+      request(
+        "https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/"
+      )
+    );
+    expect(response.status).toBe(200);
+  });
 });

@@ -10,12 +10,13 @@ declare global {
   }
 }
 
-/** El usuario nombra explícitamente el recurso externo que quiere abrir. */
+/** El usuario pide explícitamente abrir un recurso externo. */
 const RECURSO_OFICIAL =
-  /(informes?|el link|el enlace|recurso oficial|pagina oficial|sitio oficial|portal oficial|llevame al oficial|mandame al oficial)/;
+  /\b(abri|abrir|abrime|abre|abrimelo|mostrame|muestrame|muestreme|llevame|lleveme|mandame|mandemelo|pasame)\b.{0,18}\b(el\s+)?(link|enlace|sitio|pagina|página|portal|recurso|oficial|informe|informes)\b/;
 
 /** Reintento cuando el navegador bloqueó la pestaña. */
-const NO_SE_ABRIO = /(no se abrio|no abrio|no aparecio|no se pudo abrir)/;
+const NO_SE_ABRIO =
+  /(no se abrio|no se abrió|no abrio|no abrió|no aparecio|no apareció|no se pudo abrir|se abrio nada|se abrió nada)/;
 
 export function wantsOpenResource(raw: string): boolean {
   const text = raw
@@ -27,15 +28,15 @@ export function wantsOpenResource(raw: string): boolean {
     .trim();
   if (
     /\b(rut|wizard|declaracion)\b/.test(text) &&
-    !/informe|sia|oficial/.test(text)
+    !/informe|sia|oficial|whatsapp|wsp|wasap/.test(text)
   ) {
     return false;
   }
-  // Exige nombrar el recurso. Antes alcanzaba con un verbo suelto ("abrime"),
-  // y eso hacía que una confirmación pelada como "vale, abrímelo" —que se
-  // refería a otra cosa ofrecida un turno antes— terminara abriendo el portal
-  // oficial de la última sección visitada.
-  return NO_SE_ABRIO.test(text) || RECURSO_OFICIAL.test(text);
+  return (
+    NO_SE_ABRIO.test(text) ||
+    RECURSO_OFICIAL.test(text) ||
+    /\brecurso oficial\b/.test(text)
+  );
 }
 
 export function closeResourceViewer() {

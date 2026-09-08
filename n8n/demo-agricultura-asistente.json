@@ -1,6 +1,21 @@
 {
-  "name": "DEMO Agricultura Mendoza — web + GABI B",
+  "name": "DEMO Agricultura Mendoza — Agente LangChain (Gemini)",
   "nodes": [
+    {
+      "parameters": {
+        "content": "## DEMO Agricultura — Agente LangChain\n\n**Webhook:** `POST /webhook/demo-agricultura`\n\n**Nodos LangChain:**\n- Agente DEMO (Tools Agent)\n- Gemini Chat Model\n- Memoria por sessionId\n- Parser JSON estructurado\n- Tool `buscar_seccion`\n\n**Credencial requerida:** Google Gemini (PaLM) API en el nodo Gemini.\n\n**Next.js** (`.env.local`):\n```\nUSE_N8N_AS_BRAIN=true\nN8N_WEBHOOK_URL=https://n8n.followlsn.com/webhook/demo-agricultura\nGEMINI_API_KEY=...\nGEMINI_MODEL=gemini-2.0-flash\n```\n\nRegenerar: `node n8n/sync-demo-agricultura-workflow.mjs`",
+        "height": 380,
+        "width": 460
+      },
+      "id": "note-1",
+      "name": "Notas",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -280,
+        -80
+      ]
+    },
     {
       "parameters": {
         "httpMethod": "POST",
@@ -20,14 +35,130 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $json.body ?? $json;\nconst sessionId = String(body.sessionId || '').trim();\nconst text = String(body.text || '').trim();\nconst originalText = String(body.originalText || text).trim();\nif (!sessionId || !text) {\n  return [{ json: { ok: false, error: 'sessionId y text requeridos' } }];\n}\n\nconst staticData = $getWorkflowStaticData('global');\nif (!staticData.sessions) staticData.sessions = {};\nconst prev = staticData.sessions[sessionId] || { turns: [], facts: {}, pendingFields: {}, lastSectionId: '', rutMode: 'idle' };\nconst incomingHistory = Array.isArray(body.history) ? body.history : [];\nconst history = (incomingHistory.length ? incomingHistory : (prev.turns || [])).slice(-20);\nconst facts = { ...(prev.facts || {}), ...(body.facts || {}) };\nconst pendingFields = { ...(prev.pendingFields || {}), ...(body.pendingFields || {}) };\nconst lastSectionId = String(body.lastSectionId || prev.lastSectionId || '');\nconst rutMode = String(body.rutMode || prev.rutMode || 'idle');\nconst pageContext = body.pageContext || {};\nconst model = String(body.model || 'gemini-2.5-flash').trim() || 'gemini-2.5-flash';\nconst apiKey = String(body.geminiApiKey || '').trim();\n\nconst SECTIONS = \"- autoridades | Autoridades | institucional |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- mision | Misi\\u00f3n | institucional |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- vision | Visi\\u00f3n | institucional |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- funcion | Funci\\u00f3n | institucional |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- normativa | Normativa Legal | institucional |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- tramites | Tr\\u00e1mites | tramites |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- rut | RUT | tramites | Registro \\u00danico de Tierras. Inscripci\\u00f3n y declaraci\\u00f3n jurada a trav\\u00e9s del Sistema de Informaci\\u00f3n Agr\\u00edcola (SIA). | https://sia.mendoza.gov.ar/account/login\\n- publicaciones-ia | Consultas de publicaciones oficiales con IA | publicaciones |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- economia-regional | Econom\\u00eda regional | publicaciones | Informes y an\\u00e1lisis de econom\\u00eda regional agropecuaria. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- manejo-hidrico | Manejo H\\u00eddrico | publicaciones | Informaci\\u00f3n sobre manejo del agua en sistemas productivos. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- fruticultura | Fruticultura | publicaciones | Publicaciones e informes del sector frut\\u00edcola. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- horticultura | Horticultura | publicaciones | Publicaciones e informes del sector hort\\u00edcola. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- frutos-secos | Frutos Secos | publicaciones | Informaci\\u00f3n sobre frutos secos en Mendoza. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- cultivos-fruticolas | Cultivos Frut\\u00edcolas | cultivos |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- durazno | Durazno Industria | cultivos | Informes, tableros e \\u00edndices tecnol\\u00f3gicos del durazno para industria. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- ciruela | Ciruela | cultivos | Informes tecnol\\u00f3gicos, pron\\u00f3stico de cosecha y reportes de ciruela. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- cereza | Cereza | cultivos | Informaci\\u00f3n productiva y reportes de cereza. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- vid | Vid | cultivos | Informaci\\u00f3n vinculada a vid y viticultura. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- fenologia | Fenolog\\u00eda | cultivos | Estadios del cultivo a lo largo del a\\u00f1o. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- cultivos-horticolas | Cultivos Hort\\u00edcolas | cultivos |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- ajo | Ajo | cultivos | Informes y datos productivos de ajo. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- tomate | Tomate Industria | cultivos | Informes y datos productivos de tomate para industria. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- cinturon-verde | Cintur\\u00f3n Verde | cultivos | Informaci\\u00f3n del cintur\\u00f3n verde mendocino. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- monitoreo-heladas | Monitoreo de heladas | monitoreo | Herramientas y tableros de monitoreo de heladas. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- monitoreo-catas | Monitoreo de Catas | monitoreo | Control sugerido y legislaci\\u00f3n relacionada a catas. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- herramientas | Herramientas digitales agr\\u00edcolas | herramientas |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- agrometeorologia | Agrometeorolog\\u00eda | herramientas | Datos y herramientas agrometeorol\\u00f3gicas. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- mapas-agricolas | Mapas Agr\\u00edcolas | herramientas | Mapas agr\\u00edcolas de la provincia de Mendoza. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- estaciones | Red de Estaciones Meteorol\\u00f3gicas | herramientas | Red de estaciones meteorol\\u00f3gicas agr\\u00edcolas. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- visor-agricola | Visor Agr\\u00edcola | herramientas | Visor geoespacial agr\\u00edcola. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- radar | Radar meteorol\\u00f3gico | herramientas | Acceso a radar meteorol\\u00f3gico. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- eventos-meteo | An\\u00e1lisis de eventos meteorol\\u00f3gicos | herramientas | An\\u00e1lisis de eventos meteorol\\u00f3gicos relevantes para la producci\\u00f3n. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- bpa-herramienta | Buenas Pr\\u00e1cticas Agr\\u00edcolas | herramientas | Herramientas y recursos de Buenas Pr\\u00e1cticas Agr\\u00edcolas. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- precios | Relevamiento de precios | precios | Informaci\\u00f3n clara y actualizada sobre precios al consumidor final de hortalizas, frutas y huevos en Mendoza. Informes semanales. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- odk-collect | ODK Collect \\u00b7 c\\u00f3digo QR | tramites | App Android para formularios en campo. El QR configura el proyecto: Agregar proyecto y escanear QR. No es un link web. En la demo hay un facsimil educativo embebido. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- capacitaciones | Capacitaciones | capacitaciones |  | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- capacitacion-bpa | Buenas Pr\\u00e1cticas Agr\\u00edcolas (capacitaci\\u00f3n) | capacitaciones | Capacitaci\\u00f3n en BPA para producci\\u00f3n sostenible, eficiente y responsable. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\\n- encargado-finca | Encargado de Finca | capacitaciones | Programa de capacitaci\\u00f3n para encargados de cultivos frut\\u00edcolas, hort\\u00edcolas y vit\\u00edcolas. | https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\";\nconst SOURCE_URL = \"https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\";\n\nconst systemPrompt = `Sos GABI B, guía en vivo premium de la DEMO del portal de la Dirección de Agricultura de Mendoza (Ministerio de Economía y Energía).\nHablás como una persona de Mendoza: cercano, claro, con voseo (decime, mirá, dale). Nunca suenes a menú, kiosco, call center ni script robótico.\nEl director es el Ing. Agr. Mgter. Alfredo Draque. Mail: direcciondeagricultura@mendoza.gov.ar. Casa de Gobierno, 6° piso.\nSitio oficial: ${SOURCE_URL}\nSIA / RUT oficial: https://sia.mendoza.gov.ar/account/login\n\nIDENTIDAD Y MEMORIA:\n- Recordá nombre, cultivo, departamento, datos del RUT y temas ya visitados que te pasen en MEMORIA DE SESIÓN e historial.\n- Si el productor ya dijo un dato, no lo vuelvas a pedir salvo que pida corregirlo.\n- Variá acuses y arranques: Listo / Bien / Anotado / Gracias / Quedó registrado / Dale / Mirá / Bueno / Ahí te llevo / Te marco. Nunca encadenes \"Perfecto\" dos veces.\n- Respuestas CORTAS: 1 o 2 oraciones (máx. ~220 caracteres). Si interrumpen, respondé solo la consulta nueva.\n\nCONTROL DE PÁGINA:\nTu trabajo NO es solo responder: tenés que MOVER la página, marcar la sección, abrir el wizard del RUT o el recurso oficial, y seguir la conversación como un guía humano.\nLos portales oficiales de Mendoza se abren en OTRA PESTAÑA (no se pueden embeber). El bot flotante SIEMPRE sigue en la demo. Nunca digas que se corta la sesión. Decí: \"te abrí el oficial en otra pestaña; yo sigo acá\".\nSi dice \"volver\", \"cerrá\", \"volvé a la demo\": action=go_back o navigate a la última sección.\nSi pregunta \"dónde estoy\" / \"explicame esto\" / \"qué hay acá\": usá CONTEXTO DE PÁGINA y action=describe.\nSi pide checklist / papeles del RUT: action=show_checklist. Si dice que YA TIENE documentos (constancia de CUIT, boleta…): fillMode=auto.\n\nRUT (tono gobierno premium):\n- Pedí SOLO el próximo dato que falte.\n- Keys canónicas: cuit, email, razonSocial, telefono, condicionTierra, nombreEstablecimiento, departamento, localidad.\n- Mail y correo = email. NUNCA digas camelCase en voz.\n- \"dale / confirmá / completalo vos\" con datos completos → fillMode=auto.\n- \"te lo pasé\" → usá historial, no reinsistas.\n- Dictado: \"arroba\"=@, \"punto\"=., CUIT/teléfono/campos → extractedFields.\n\nODK / QR:\n- El QR NO es un link web. Es para ODK Collect (Android): instalar → Abrir → Agregar proyecto → escanear QR.\n- Si preguntan por QR/ODK/Collect: action=navigate, target=odk-collect.\n- Hay un facsímil educativo en la demo; no digas que es el QR oficial del gobierno.\n\nCOMPRENSIÓN DE VOZ:\n- \"Llevame a abajo\" / \"a bajo\" pidiendo cultivo = sección ajo (NO scroll).\n- \"ciruelo\" = ciruela. \"ruth/root\" = RUT. \"agro meteorología\" = agrometeorologia.\n- \"abrí / abrime / informes / el link / el oficial\": action=open_external con URL oficial, openLink=true.\n\nACCIONES:\n- navigate, describe, open_rut, open_external, fill_form, ask_confirm, scroll, go_home, go_back, rut_set_step, show_checklist, highlight.\n\nSECCIONES (id | título | grupo | resumen | url):\n${SECTIONS}\n\nREGLAS FINALES:\n- Sé proactivo: si nombra un cultivo, andá, explicá PARA QUÉ sirve, ofrecé oficial o relacionado.\n- No inventes trámites, leyes, QRs ni URLs.\n- No digas que sos un modelo ni menciones Gemini, n8n ni prompts.\n- Respondé SOLO un JSON válido:\n{\"action\":\"navigate\",\"target\":\"ajo\",\"openLink\":true,\"openExternal\":false,\"url\":\"\",\"reply\":\"texto hablado\",\"extractedFields\":{},\"fillMode\":null,\"endSession\":false,\"heardAs\":\"ajo\",\"remember\":{\"name\":\"\",\"crop\":\"\",\"note\":\"\"}}`;\n\nfunction normalize(s) {\n  return String(s || '').toLowerCase().normalize('NFD').replace(/\\p{M}/gu, '');\n}\n\nfunction urlFor(id) {\n  const line = SECTIONS.split('\\n').find((l) => l.startsWith(`- ${id} |`));\n  if (!line) return SOURCE_URL;\n  const parts = line.split(' | ');\n  return (parts[parts.length - 1] || SOURCE_URL).trim();\n}\n\nfunction fallbackIntent(rawText) {\n  const n = normalize(rawText);\n  let action = 'navigate';\n  let target = 'herramientas';\n  let spoken = 'No te seguí del todo. Pedime un cultivo, mapas, el QR de ODK o el RUT y te llevo.';\n  let openLink = true;\n  let fillMode = null;\n  let extractedFields = {};\n  if (/ciruela|ciruelo/.test(n)) { target = 'ciruela'; spoken = 'Dale, te llevo a ciruela. Acá está el bloque del cultivo y el recurso oficial.'; }\n  else if (/durazno/.test(n)) { target = 'durazno'; spoken = 'Te llevo a durazno industria.'; }\n  else if (/\\bajo\\b|abajo|a bajo/.test(n) && !/scroll|baja un poco|mas abajo|más abajo/.test(n)) { target = 'ajo'; spoken = 'Ahí te llevo a ajo. Te marco la sección del cultivo.'; }\n  else if (/tomate/.test(n)) { target = 'tomate'; spoken = 'Te marco tomate.'; }\n  else if (/mapa/.test(n)) { target = 'mapas-agricolas'; spoken = 'Estos son los mapas agrícolas de Mendoza.'; }\n  else if (/radar/.test(n)) { target = 'radar'; spoken = 'Acá está el radar meteorológico.'; }\n  else if (/precio/.test(n)) { target = 'precios'; spoken = 'Este es el relevamiento de precios.'; }\n  else if (/odk|collect|codigo qr|código qr|\\bqr\\b/.test(n)) { target = 'odk-collect'; openLink = false; spoken = 'El código QR es para la app ODK Collect en el celular: Agregar proyecto y escanear. Te marco la sección con el facsímil educativo.'; }\n  else if (/\\brut\\b|inscrib|registro unico|ruth|root/.test(n)) { action = 'open_rut'; target = undefined; openLink = false; spoken = 'Dale, te abro el wizard del RUT. Empezamos cuando quieras.'; }\n  else if (/hola|buen/.test(n)) { target = 'tramites'; openLink = false; spoken = facts.name ? `Hola ${facts.name}, ¿cómo andás? Pedime un cultivo, mapas, el QR o el RUT.` : 'Hola, ¿cómo andás? Pedime un cultivo, mapas, el QR o el RUT.'; }\n  else if (/volver|volve|cerrá|cerra/.test(n)) { action = 'go_back'; target = undefined; openLink = false; spoken = 'Volvemos un paso. ¿Seguimos desde acá?'; }\n  if (/confirm|completalo|dale.*carg|auto/.test(n)) fillMode = 'auto';\n  return {\n    action,\n    target,\n    openLink,\n    openExternal: false,\n    url: target ? urlFor(target) : '',\n    reply: spoken,\n    extractedFields,\n    fillMode,\n    endSession: false,\n    heardAs: target || action,\n    remember: {},\n  };\n}\n\nfunction parseIntent(raw) {\n  if (!raw) return null;\n  const m = String(raw).match(/\\{[\\s\\S]*\\}/);\n  if (!m) return null;\n  try {\n    const data = JSON.parse(m[0]);\n    const reply = String(data.reply || '').trim();\n    if (!reply) return null;\n    return {\n      action: String(data.action || 'describe'),\n      target: data.target ? String(data.target) : undefined,\n      openLink: data.openLink === true,\n      openExternal: data.openExternal === true,\n      url: data.url ? String(data.url) : '',\n      reply,\n      extractedFields: data.extractedFields && typeof data.extractedFields === 'object' ? data.extractedFields : {},\n      fillMode: ['auto', 'manual', 'ask'].includes(data.fillMode) ? data.fillMode : null,\n      endSession: data.endSession === true,\n      heardAs: data.heardAs ? String(data.heardAs) : '',\n      remember: data.remember && typeof data.remember === 'object' ? data.remember : {},\n    };\n  } catch {\n    return null;\n  }\n}\n\nconst http = this.helpers.httpRequest.bind(this.helpers);\nasync function callGemini(repair) {\n  if (!apiKey) return null;\n  const ctxBits = [\n    `pathname=${pageContext.pathname || '/'}`,\n    `hash=${pageContext.hash || '(ninguno)'}`,\n    `seccionVisible=${pageContext.sectionId || '(desconocida)'}`,\n  ];\n  if (pageContext.sectionTitle) ctxBits.push(`titulo=${pageContext.sectionTitle}`);\n  if (pageContext.sectionBlurb) ctxBits.push(`resumen=${pageContext.sectionBlurb}`);\n  if (pageContext.rutStep) ctxBits.push(`rutPaso=${pageContext.rutStep}`);\n\n  const userPrompt = [\n    `Última sección visitada: ${lastSectionId || 'ninguna'}.`,\n    `CONTEXTO DE PÁGINA: ${ctxBits.join(' | ')}.`,\n    `RUT mode=${rutMode} | campos pendientes=${JSON.stringify(pendingFields)}.`,\n    `MEMORIA DE SESIÓN (hechos): ${JSON.stringify(facts)}.`,\n    `Texto original del dictado: \"${originalText}\".`,\n    `Texto corregido (si cambió, priorizalo): \"${text}\".`,\n    repair\n      ? 'Tu respuesta anterior no era JSON válido. Devolvé SOLO el JSON del contrato, sin markdown.'\n      : 'Interpretá la intención con máxima fluidez, elegí la acción y respondé como guía en vivo premium.',\n  ].join('\\n');\n\n  const contents = [];\n  for (const turn of history.slice(-16)) {\n    contents.push({\n      role: turn.role === 'assistant' ? 'model' : 'user',\n      parts: [{ text: String(turn.text || '') }],\n    });\n  }\n  contents.push({ role: 'user', parts: [{ text: userPrompt }] });\n\n  const res = await http({\n    method: 'POST',\n    url: `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,\n    headers: {\n      'Content-Type': 'application/json',\n      'x-goog-api-key': apiKey,\n    },\n    body: {\n      systemInstruction: { parts: [{ text: systemPrompt }] },\n      contents,\n      generationConfig: {\n        temperature: repair ? 0.15 : 0.4,\n        topP: 0.9,\n        maxOutputTokens: 360,\n        responseMimeType: 'application/json',\n      },\n    },\n    json: true,\n    timeout: 16000,\n  });\n  return res?.candidates?.[0]?.content?.parts?.[0]?.text || null;\n}\n\nlet intent = null;\nlet via = 'fallback';\ntry {\n  let raw = await callGemini(false);\n  intent = parseIntent(raw);\n  if (!intent) {\n    raw = await callGemini(true);\n    intent = parseIntent(raw);\n  }\n  if (intent) via = 'gemini-2.5-flash';\n} catch (err) {\n  intent = null;\n}\nif (!intent) intent = fallbackIntent(text);\n\nfor (const [k, v] of Object.entries(intent.remember || {})) {\n  const clean = String(v || '').trim();\n  if (clean) facts[k] = clean;\n}\nif (intent.extractedFields && typeof intent.extractedFields === 'object') {\n  Object.assign(pendingFields, intent.extractedFields);\n}\nif (intent.target && (intent.action === 'navigate' || intent.action === 'describe' || intent.action === 'highlight')) {\n  facts.lastTopic = intent.target;\n}\nif (intent.action === 'open_rut') facts.lastTopic = 'rut';\n\nconst turns = [...history, { role: 'user', text }, { role: 'assistant', text: intent.reply }].slice(-24);\nstaticData.sessions[sessionId] = {\n  turns,\n  facts,\n  pendingFields,\n  lastSectionId: intent.target || lastSectionId,\n  rutMode: intent.action === 'open_rut' ? 'collecting' : rutMode,\n  updatedAt: Date.now(),\n};\n\nconst keys = Object.keys(staticData.sessions);\nif (keys.length > 200) {\n  keys.sort((a, b) => (staticData.sessions[a].updatedAt || 0) - (staticData.sessions[b].updatedAt || 0));\n  for (const k of keys.slice(0, keys.length - 200)) delete staticData.sessions[k];\n}\n\nreturn [{\n  json: {\n    ok: true,\n    sessionId,\n    action: intent.action,\n    target: intent.target,\n    openLink: intent.openLink === true,\n    openExternal: intent.openExternal === true,\n    url: intent.url || '',\n    reply: intent.reply,\n    spoken: intent.reply,\n    extractedFields: intent.extractedFields || {},\n    fillMode: intent.fillMode,\n    endSession: intent.endSession === true,\n    heardAs: intent.heardAs || '',\n    remember: intent.remember || {},\n    via,\n    event: {\n      action: intent.action,\n      target: intent.action === 'open_external' ? (intent.url || intent.target) : intent.target,\n      payload: {\n        openLink: intent.openLink === true,\n        openExternal: intent.openExternal === true,\n        url: intent.url || undefined,\n        click: true,\n        fields: intent.extractedFields || undefined,\n        heardAs: intent.heardAs || undefined,\n        remember: intent.remember || undefined,\n      },\n    },\n  },\n}];\n"
+        "jsCode": "/** Preparar contexto para el Agente LangChain — regenerar con sync script */\nconst body = $json.body ?? $json;\nconst sessionId = String(body.sessionId || \"\").trim();\nconst text = String(body.text || \"\").trim();\nconst originalText = String(body.originalText || text).trim();\n\nif (!sessionId || !text) {\n  return [{ json: { ok: false, error: \"sessionId y text requeridos\" } }];\n}\n\nconst staticData = $getWorkflowStaticData(\"global\");\nif (!staticData.sessions) staticData.sessions = {};\n\nconst prev = staticData.sessions[sessionId] || {\n  turns: [],\n  facts: {},\n  pendingFields: {},\n  lastSectionId: \"\",\n  rutMode: \"idle\",\n};\n\nconst incomingHistory = Array.isArray(body.history) ? body.history : [];\nconst history = (incomingHistory.length ? incomingHistory : prev.turns || []).slice(\n  -16\n);\nconst facts = { ...(prev.facts || {}), ...(body.facts || {}) };\nconst pendingFields = {\n  ...(prev.pendingFields || {}),\n  ...(body.pendingFields || {}),\n};\nconst lastSectionId = String(body.lastSectionId || prev.lastSectionId || \"\");\nconst rutMode = String(body.rutMode || prev.rutMode || \"idle\");\nconst pageContext = body.pageContext || {};\n\nconst rawModel = String(body.model || \"gemini-2.0-flash\").trim();\nconst model = rawModel.startsWith(\"models/\")\n  ? rawModel\n  : `models/${rawModel.replace(/^gemini-/, \"gemini-\")}`;\n\nconst ctxBits = [\n  `pathname=${pageContext.pathname || \"/\"}`,\n  `hash=${pageContext.hash || \"(ninguno)\"}`,\n  `seccionVisible=${pageContext.sectionId || \"(desconocida)\"}`,\n];\nif (pageContext.sectionTitle) ctxBits.push(`titulo=${pageContext.sectionTitle}`);\nif (pageContext.sectionBlurb) ctxBits.push(`resumen=${pageContext.sectionBlurb}`);\nif (pageContext.rutStep) ctxBits.push(`rutPaso=${pageContext.rutStep}`);\n\nconst historyBlock = history.length\n  ? history.map((t) => `${t.role}: ${t.text}`).join(\"\\n\")\n  : \"(sin historial previo)\";\n\nconst agentUserMessage = [\n  `SECCIÓN ACTUAL O ÚLTIMA: ${lastSectionId || \"ninguna\"}.`,\n  `CONTEXTO DE PÁGINA: ${ctxBits.join(\" | \")}.`,\n  `HECHOS DE SESIÓN: ${JSON.stringify(facts)}.`,\n  `RUT mode=${rutMode} | campos pendientes=${JSON.stringify(pendingFields)}.`,\n  `TEXTO ORIGINAL STT: \"${originalText}\".`,\n  `TEXTO CORREGIDO: \"${text}\".`,\n  \"\",\n  \"HISTORIAL RECIENTE:\",\n  historyBlock,\n  \"\",\n  \"Respondé al pedido del usuario. Si necesitás un id de sección, usá buscar_seccion.\",\n].join(\"\\n\");\n\nreturn [\n  {\n    json: {\n      ok: true,\n      sessionId,\n      text,\n      originalText,\n      history,\n      facts,\n      pendingFields,\n      lastSectionId,\n      rutMode,\n      pageContext,\n      model,\n      agentUserMessage,\n    },\n  },\n];\n"
       },
-      "id": "agent-1",
-      "name": "Agente Gemini",
+      "id": "prep-1",
+      "name": "Preparar contexto",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         280,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.agentUserMessage }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Sos el asistente de voz de la DEMO del portal de la Dirección de Agricultura de Mendoza.\nHablás en español rioplatense claro y profesional (voseo natural, tono de funcionario público cercano).\n\n## Herramientas\n- **buscar_seccion**: usala cuando necesites confirmar el id de una sección, cultivo o trámite antes de navegar o explicar.\n\n## Qué podés hacer\n- Navegar la demo (action=navigate + target=id de sección).\n- Explicar cultivos, trámites, herramientas, precios, clima (action=describe) con **respuestas sustanciosas**, no plantillas vacías.\n- Abrir el sitio oficial en otra pestaña (action=open_external, openLink=true).\n- RUT por WhatsApp (action=open_whatsapp) o wizard demo (action=open_rut).\n- Seguir el hilo: \"sí\"/\"dale\" responde a tu última oferta del historial.\n\n## Reglas de inteligencia\n- Respondé **exactamente** lo que preguntaron. Si piden \"qué hace\" o \"explicame\", dá **contenido y utilidad**, no solo el nombre de la sección.\n- Si el usuario dice que no lo entendiste o pide explicar mejor: **cambiá el enfoque** y agregá información nueva. **Nunca repitas** la misma frase de introducción.\n- \"No profundicemos\" / cambio de tema: cerrá el tema y ofrecé otras áreas concretas.\n- WhatsApp vs wizard: si piden WhatsApp explícitamente, action=open_whatsapp (no wizard ni SIA).\n- 2-4 oraciones útiles cuando haga falta explicar; 1-2 cuando sea solo navegar.\n- Variá acuses (Muy bien, Perfecto, Listo). No inventes leyes ni cifras oficiales.\n- Esta es una DEMO; el oficial abre en otra pestaña.\n- ODK/QR: action=navigate, target=odk-collect (no es link web).\n\n## Errores típicos de voz (STT)\n- root/ruth/rod/rued = RUT (en trámite/registro)\n- dirico/idrico/manéjo dirico = manejo hídrico\n- abajo = ajo; ciruelo = ciruela\n- difundimos en = a veces quieren profundizar en un tema\n\n## Mapa del sitio\n# Mapa del sitio — Dirección de Agricultura (Mendoza)\n\nFuente oficial: https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\nEsta demo replica la navegación del portal. Los IDs entre paréntesis se usan para navegar la página DEMO.\n\n## Institucional\n- Autoridades (`autoridades`): Director Ing. Agr. Mgter. Alfredo Draque. Contacto: direcciondeagricultura@mendoza.gov.ar — Casa de Gobierno, 6° piso.\n- Misión (`mision`): asistencia técnica, capacitación e innovación para productores.\n- Visión (`vision`): agricultura innovadora, sostenible y competitiva.\n- Función (`funcion`): políticas públicas, sanidad vegetal, estadísticas, desarrollo rural, mercados.\n- Normativa Legal (`normativa`): RUT (Ley 4438, Decreto 229), BPA, FIDA, FIDEC, orgánica, forestales, vitivinicultura.\n\n## Trámites\n- RUT (`rut`): Registro Único de Tierras. Se gestiona en el SIA: https://sia.mendoza.gov.ar/account/login\n  En la DEMO hay un wizard guiado en `/rut`.\n- ODK Collect / QR (`odk-collect`): el QR configura la app Android ODK Collect (Agregar proyecto → escanear). No es un link web. Ver `odk-collect.md`.\n\n## Publicaciones oficiales (con IA en el portal)\n- Economía regional (`economia-regional`)\n- Manejo Hídrico (`manejo-hidrico`)\n- Fruticultura (`fruticultura`)\n- Horticultura (`horticultura`)\n- Frutos Secos (`frutos-secos`)\n\n## Cultivos frutícolas\n- Durazno Industria (`durazno`)\n- Ciruela (`ciruela`)\n- Cereza (`cereza`)\n- Vid (`vid`)\n- Fenología / estadios del cultivo (`fenologia`)\n\n## Cultivos hortícolas\n- Ajo (`ajo`)\n- Tomate Industria (`tomate`)\n- Cinturón Verde (`cinturon-verde`)\n\n## Monitoreo\n- Monitoreo de heladas (`monitoreo-heladas`)\n- Monitoreo de Catas (`monitoreo-catas`)\n\n## Herramientas digitales agrícolas\n- Agrometeorología (`agrometeorologia`)\n- Mapas Agrícolas (`mapas-agricolas`)\n- Red de Estaciones Meteorológicas (`estaciones`)\n- Visor Agrícola (`visor-agricola`)\n- Radar meteorológico (`radar`)\n- Análisis de eventos meteorológicos (`eventos-meteo`)\n- Buenas Prácticas Agrícolas — herramienta (`bpa-herramienta`)\n\n## Precios y capacitaciones\n- Relevamiento de precios (`precios`): precios al consumidor de hortalizas, frutas y huevos; informes semanales.\n- Capacitaciones (`capacitaciones`)\n- BPA capacitación (`capacitacion-bpa`): inscripción por mail a direcciondeagricultura@mendoza.gov.ar\n- Encargado de Finca (`encargado-finca`): mismo canal de inscripción.\n\n## Cómo ayudar al usuario\n1. Preguntar qué necesita (trámite, cultivo, clima, capacitación, precios, QR/ODK).\n2. Navegar al `section_id` correcto y marcar la sección.\n3. Explicar en lenguaje simple qué encontrará ahí.\n4. Si pide RUT, abrir el wizard y guiar campos (CUIT, mail, razón social, teléfono, finca…).\n5. No inventar datos de producción ni leyes que no estén listadas.\n6. Aclarar que esta es una DEMO y no el sitio oficial.\n\n## Temas para explicar con profundidad\n# Temas del portal — contexto para respuestas profundas\n\nUsá este material cuando el usuario pida **explicar**, **qué hace**, **para qué sirve** o **profundizar**. No repitas solo la frase corta de navegación: respondé la pregunta con sustancia.\n\n## Manejo hídrico (`manejo-hidrico`)\n\nEn Mendoza el agua de riego es un recurso estratégico y regulado. La sección **Manejo Hídrico** del portal agrupa **publicaciones e informes oficiales** sobre:\n\n- Uso eficiente del agua en explotaciones agrícolas y sistemas productivos.\n- Planificación y gestión hídrica aplicada al campo.\n- Buenas prácticas de riego y criterios técnicos para productores e ingenieros.\n- Material vinculado a la política hídrica provincial en el ámbito agropecuario.\n\n**No es un trámite** ni un formulario: es **información y documentación técnica** de la Dirección de Agricultura. Si piden el recurso oficial, abrí el enlace de la sección en otra pestaña.\n\nSi el usuario insiste en entender “qué hace” la sección, explicá el **contenido y el propósito** (informar, orientar, publicar estudios), no vuelvas a decir solo “acá está manejo hídrico”.\n\n## Economía regional (`economia-regional`)\n\nInformes y análisis agropecuarios de Mendoza: producción, mercados, cadenas y contexto económico del sector. Sirve para consultar documentos oficiales, no para iniciar trámites.\n\n## Fruticultura / horticultura / frutos secos\n\nAgrupan cultivos e informes por cadena productiva. Cada subsección (ciruela, durazno, ajo, etc.) tiene informes, datos o enlaces al portal oficial del Ministerio de Producción.\n\n## Herramientas digitales (clima, mapas, estaciones)\n\n- **Agrometeorología / estaciones / radar / eventos**: datos climáticos para decisiones en campo (heladas, lluvias, tormentas).\n- **Mapas y visor agrícola**: cartografía y capas geoespaciales de la producción mendocina.\n- **Monitoreo de heladas**: herramienta muy usada en épocas de riesgo de helada.\n\n## RUT (`rut`)\n\nRegistro Único de Tierras: declaración de fincas y cultivos. Trámite real en el **SIA**; en la demo hay wizard visual y opción de **WhatsApp con agente** para registro guiado con validación de datos y documentación.\n\n## Cómo responder preguntas abiertas\n\n- “¿Qué hace esta página?” → resumí el portal demo + 3 ejemplos de lo que puede pedir (cultivo, clima, RUT, oficial).\n- “¿Qué hace [sección]?” → explicá **contenido, público y utilidad**, no solo el título.\n- “No profundicemos / cambiemos de tema” → cerrá el tema actual y ofrecé otras áreas concretas.\n- “Quiero WhatsApp, no el wizard” → `open_whatsapp`, sin abrir SIA ni wizard.\n- Repetición del usuario (“no me entendiste”, “explicame mejor”) → **cambiá el ángulo** de la respuesta; no repitas la misma plantilla.\n\n## Errores típicos de voz (STT)\n\n- **ruth / root / rod / rued** en trámite o registro → **RUT**\n- **manejo dirico / idrico / hídrico mal escuchado** → **manejo hídrico**\n- **abajo / a bajo** en cultivos → **ajo**\n- **ciruelo** → **ciruela**\n- **difundimos en** a veces = **profundicemos en** (seguimiento de tema)\n\nSitio oficial: https://sitios.mendoza.gob.ar/produccion/direccion-de-agricultura/\nSIA RUT: https://sia.mendoza.gov.ar/account/login\n\nDevolvé SIEMPRE el JSON del contrato (action, target, reply, etc.) usando el parser estructurado.\n",
+          "maxIterations": 8,
+          "returnIntermediateSteps": false
+        }
+      },
+      "id": "agent-1",
+      "name": "Agente DEMO Agricultura",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        560,
+        0
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "modelName": "={{ $('Preparar contexto').first().json.model }}",
+        "options": {
+          "temperature": 0.45,
+          "maxOutputTokens": 1200
+        }
+      },
+      "id": "gemini-1",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        560,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "sessionKey": "={{ $('Preparar contexto').first().json.sessionId }}",
+        "contextWindowLength": 12
+      },
+      "id": "mem-1",
+      "name": "Memoria sesión",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        760,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "fromJson",
+        "jsonSchemaExample": "{\n  \"action\": \"describe\",\n  \"target\": \"ciruela\",\n  \"openLink\": false,\n  \"openExternal\": false,\n  \"url\": \"\",\n  \"reply\": \"Texto hablado para el usuario.\",\n  \"extractedFields\": {},\n  \"fillMode\": null,\n  \"endSession\": false,\n  \"heardAs\": \"\",\n  \"remember\": {}\n}",
+        "autoFix": true
+      },
+      "id": "parser-1",
+      "name": "Parser JSON intent",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        960,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "name": "buscar_seccion",
+        "description": "Busca secciones, cultivos o trámites de la demo por nombre o palabra clave. Devuelve id, título y grupo. Usala antes de navigate/describe si no estás seguro del target.",
+        "language": "javaScript",
+        "specifyInputSchema": true,
+        "schemaType": "fromJson",
+        "jsonSchemaExample": "{\"busqueda\":\"ciruela\"}",
+        "jsCode": "const input = typeof query === 'string' ? JSON.parse(query) : query;\nconst term = String(input.busqueda || input.query || '').toLowerCase().normalize('NFD').replace(/\\p{M}/gu, '');\nconst sections = [{\"id\":\"autoridades\",\"title\":\"Autoridades\",\"group\":\"institucional\",\"summary\":\"\"},{\"id\":\"mision\",\"title\":\"Misión\",\"group\":\"institucional\",\"summary\":\"\"},{\"id\":\"vision\",\"title\":\"Visión\",\"group\":\"institucional\",\"summary\":\"\"},{\"id\":\"funcion\",\"title\":\"Función\",\"group\":\"institucional\",\"summary\":\"\"},{\"id\":\"normativa\",\"title\":\"Normativa Legal\",\"group\":\"institucional\",\"summary\":\"\"},{\"id\":\"tramites\",\"title\":\"Trámites\",\"group\":\"tramites\",\"summary\":\"\"},{\"id\":\"rut\",\"title\":\"RUT\",\"group\":\"tramites\",\"summary\":\"Registro Único de Tierras. Inscripción y declaración jurada a través del Sistema de Información Agrícola (SIA).\"},{\"id\":\"publicaciones-ia\",\"title\":\"Consultas de publicaciones oficiales con IA\",\"group\":\"publicaciones\",\"summary\":\"\"},{\"id\":\"economia-regional\",\"title\":\"Economía regional\",\"group\":\"publicaciones\",\"summary\":\"Informes y análisis de economía regional agropecuaria.\"},{\"id\":\"manejo-hidrico\",\"title\":\"Manejo Hídrico\",\"group\":\"publicaciones\",\"summary\":\"Información sobre manejo del agua en sistemas productivos.\"},{\"id\":\"fruticultura\",\"title\":\"Fruticultura\",\"group\":\"publicaciones\",\"summary\":\"Publicaciones e informes del sector frutícola.\"},{\"id\":\"horticultura\",\"title\":\"Horticultura\",\"group\":\"publicaciones\",\"summary\":\"Publicaciones e informes del sector hortícola.\"},{\"id\":\"frutos-secos\",\"title\":\"Frutos Secos\",\"group\":\"publicaciones\",\"summary\":\"Información sobre frutos secos en Mendoza.\"},{\"id\":\"cultivos-fruticolas\",\"title\":\"Cultivos Frutícolas\",\"group\":\"cultivos\",\"summary\":\"\"},{\"id\":\"durazno\",\"title\":\"Durazno Industria\",\"group\":\"cultivos\",\"summary\":\"Informes, tableros e índices tecnológicos del durazno para industria.\"},{\"id\":\"ciruela\",\"title\":\"Ciruela\",\"group\":\"cultivos\",\"summary\":\"Informes tecnológicos, pronóstico de cosecha y reportes de ciruela.\"},{\"id\":\"cereza\",\"title\":\"Cereza\",\"group\":\"cultivos\",\"summary\":\"Información productiva y reportes de cereza.\"},{\"id\":\"vid\",\"title\":\"Vid\",\"group\":\"cultivos\",\"summary\":\"Información vinculada a vid y viticultura.\"},{\"id\":\"fenologia\",\"title\":\"Fenología\",\"group\":\"cultivos\",\"summary\":\"Estadios del cultivo a lo largo del año.\"},{\"id\":\"cultivos-horticolas\",\"title\":\"Cultivos Hortícolas\",\"group\":\"cultivos\",\"summary\":\"\"},{\"id\":\"ajo\",\"title\":\"Ajo\",\"group\":\"cultivos\",\"summary\":\"Informes y datos productivos de ajo.\"},{\"id\":\"tomate\",\"title\":\"Tomate Industria\",\"group\":\"cultivos\",\"summary\":\"Informes y datos productivos de tomate para industria.\"},{\"id\":\"cinturon-verde\",\"title\":\"Cinturón Verde\",\"group\":\"cultivos\",\"summary\":\"Información del cinturón verde mendocino.\"},{\"id\":\"monitoreo-heladas\",\"title\":\"Monitoreo de heladas\",\"group\":\"monitoreo\",\"summary\":\"Herramientas y tableros de monitoreo de heladas.\"},{\"id\":\"monitoreo-catas\",\"title\":\"Monitoreo de Catas\",\"group\":\"monitoreo\",\"summary\":\"Control sugerido y legislación relacionada a catas.\"},{\"id\":\"herramientas\",\"title\":\"Herramientas digitales agrícolas\",\"group\":\"herramientas\",\"summary\":\"\"},{\"id\":\"agrometeorologia\",\"title\":\"Agrometeorología\",\"group\":\"herramientas\",\"summary\":\"Datos y herramientas agrometeorológicas.\"},{\"id\":\"mapas-agricolas\",\"title\":\"Mapas Agrícolas\",\"group\":\"herramientas\",\"summary\":\"Mapas agrícolas de la provincia de Mendoza.\"},{\"id\":\"estaciones\",\"title\":\"Red de Estaciones Meteorológicas\",\"group\":\"herramientas\",\"summary\":\"Red de estaciones meteorológicas agrícolas.\"},{\"id\":\"visor-agricola\",\"title\":\"Visor Agrícola\",\"group\":\"herramientas\",\"summary\":\"Visor geoespacial agrícola.\"},{\"id\":\"radar\",\"title\":\"Radar meteorológico\",\"group\":\"herramientas\",\"summary\":\"Acceso a radar meteorológico.\"},{\"id\":\"eventos-meteo\",\"title\":\"Análisis de eventos meteorológicos\",\"group\":\"herramientas\",\"summary\":\"Análisis de eventos meteorológicos relevantes para la producción.\"},{\"id\":\"bpa-herramienta\",\"title\":\"Buenas Prácticas Agrícolas\",\"group\":\"herramientas\",\"summary\":\"Herramientas y recursos de Buenas Prácticas Agrícolas.\"},{\"id\":\"precios\",\"title\":\"Relevamiento de precios\",\"group\":\"precios\",\"summary\":\"Información clara y actualizada sobre precios al consumidor final de hortalizas, frutas y huevos en Mendoza. Informes semanales.\"},{\"id\":\"ingenieria\",\"title\":\"Ingeniería · ODK Central\",\"group\":\"ingenieria\",\"summary\":\"Vista técnica del relevamiento: QR de app user, formularios publicados y tablero simulado.\"},{\"id\":\"odk-whatsapp\",\"title\":\"WhatsApp de campo\",\"group\":\"ingenieria\",\"summary\":\"El ingeniero habla por WhatsApp y se arma una ficha simulada. No usa los XForms reales ni escribe en Central.\"},{\"id\":\"odk-forms\",\"title\":\"Formularios ODK\",\"group\":\"ingenieria\",\"summary\":\"XForms del proyecto Agricultura Mendoza: fenología, olivo y certificación de equipos.\"},{\"id\":\"odk-flujo\",\"title\":\"Flujo ODK Collect\",\"group\":\"ingenieria\",\"summary\":\"Pasos técnicos: escanear QR, bajar blancos, finalizar y enviar a Central.\"},{\"id\":\"odk-tablero\",\"title\":\"Tablero ODK\",\"group\":\"ingenieria\",\"summary\":\"Tablero simulado estilo Power BI para la campaña de formularios.\"},{\"id\":\"odk-collect\",\"title\":\"ODK Collect · ingeniería\",\"group\":\"ingenieria\",\"summary\":\"Vista técnica: QR de app user, formularios Central y tablero simulado. No es el trámite RUT.\"},{\"id\":\"capacitaciones\",\"title\":\"Capacitaciones\",\"group\":\"capacitaciones\",\"summary\":\"\"},{\"id\":\"capacitacion-bpa\",\"title\":\"Buenas Prácticas Agrícolas (capacitación)\",\"group\":\"capacitaciones\",\"summary\":\"Capacitación en BPA para producción sostenible, eficiente y responsable.\"},{\"id\":\"encargado-finca\",\"title\":\"Encargado de Finca\",\"group\":\"capacitaciones\",\"summary\":\"Programa de capacitación para encargados de cultivos frutícolas, hortícolas y vitícolas.\"}];\nif (!term) return JSON.stringify({ ok: false, error: 'Indicá busqueda' });\nconst hits = sections.filter((s) => {\n  const blob = [s.id, s.title, s.group, s.summary].join(' ').toLowerCase().normalize('NFD').replace(/\\p{M}/gu, '');\n  return blob.includes(term) || term.split(/\\s+/).some((w) => w.length > 2 && blob.includes(w));\n}).slice(0, 6);\nreturn JSON.stringify({ ok: true, hits });"
+      },
+      "id": "tool-1",
+      "name": "Tool buscar sección",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1.3,
+      "position": [
+        1160,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "={{ $('Preparar contexto').first().json.model }}",
+        "options": {
+          "temperature": 0.2,
+          "maxOutputTokens": 800
+        }
+      },
+      "id": "gemini-2",
+      "name": "Gemini Parser Fix",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "/** Formatear salida del Agente LangChain al contrato del webhook */\nconst ctx = $(\"Preparar contexto\").first().json;\nif (ctx.ok === false) {\n  return [{ json: ctx }];\n}\n\nconst staticData = $getWorkflowStaticData(\"global\");\nif (!staticData.sessions) staticData.sessions = {};\n\nconst rawOut = $json.output ?? $json.text ?? $json;\nlet intent =\n  rawOut && typeof rawOut === \"object\" && !Array.isArray(rawOut)\n    ? rawOut\n    : null;\n\nif (!intent && typeof rawOut === \"string\") {\n  const m = rawOut.match(/\\{[\\s\\S]*\\}/);\n  if (m) {\n    try {\n      intent = JSON.parse(m[0]);\n    } catch {\n      intent = null;\n    }\n  }\n}\n\nfunction knowledgeFallback(rawText) {\n  const n = String(rawText || \"\")\n    .toLowerCase()\n    .normalize(\"NFD\")\n    .replace(/\\p{M}/gu, \"\");\n  let action = \"describe\";\n  let target = undefined;\n  let reply =\n    \"En esta demo del portal de Agricultura podés explorar cultivos, mapas, clima, precios, trámites y el RUT. Contame qué necesitás.\";\n\n  if (/ciruela|ciruelo/.test(n)) {\n    target = \"ciruela\";\n    reply =\n      \"Ciruela reúne informes y pronósticos del cultivo en Mendoza. ¿Querés que te lleve ahí?\";\n  } else if (/\\bajo\\b|a bajo/.test(n) && !/scroll|baja/.test(n)) {\n    target = \"ajo\";\n    reply = \"Ajo tiene informes productivos en el portal. Te puedo marcar la sección.\";\n  } else if (/mapa/.test(n)) {\n    target = \"mapas-agricolas\";\n    reply = \"Los mapas agrícolas muestran la producción por departamento.\";\n  } else if (/\\brut\\b|ruth|root/.test(n)) {\n    action = \"navigate\";\n    target = \"rut\";\n    reply =\n      \"El RUT es el Registro Único de Tierras. Te marco la sección y te explico el trámite.\";\n  } else if (/que puedo|que se puede|para que sirve|como funciona/.test(n)) {\n    reply =\n      \"Podés pedirme que te lleve a cualquier bloque del portal, que te explique un cultivo o trámite, que abra el sitio oficial, o arrancar la demo guiada. ¿Por dónde empezamos?\";\n  }\n\n  return {\n    action,\n    target,\n    openLink: false,\n    openExternal: false,\n    url: \"\",\n    reply,\n    extractedFields: {},\n    fillMode: null,\n    endSession: false,\n    heardAs: \"\",\n    remember: {},\n  };\n}\n\nlet via = \"n8n-langchain\";\n\nif (!intent || !String(intent.reply || \"\").trim()) {\n  intent = knowledgeFallback(ctx.text);\n  via = \"fallback-local\";\n}\n\nconst reply = String(intent.reply || \"\").trim();\nconst action = String(intent.action || \"describe\");\nconst target = intent.target ? String(intent.target) : undefined;\n\nconst facts = { ...ctx.facts };\nfor (const [k, v] of Object.entries(intent.remember || {})) {\n  const clean = String(v || \"\").trim();\n  if (clean) facts[k] = clean;\n}\n\nconst pendingFields = { ...ctx.pendingFields };\nif (intent.extractedFields && typeof intent.extractedFields === \"object\") {\n  Object.assign(pendingFields, intent.extractedFields);\n}\n\nconst turns = [\n  ...ctx.history,\n  { role: \"user\", text: ctx.text },\n  { role: \"assistant\", text: reply },\n].slice(-24);\n\nstaticData.sessions[ctx.sessionId] = {\n  turns,\n  facts,\n  pendingFields,\n  lastSectionId:\n    target && [\"navigate\", \"describe\", \"highlight\"].includes(action)\n      ? target\n      : ctx.lastSectionId,\n  rutMode: action === \"open_rut\" ? \"collecting\" : ctx.rutMode,\n  updatedAt: Date.now(),\n};\n\nconst keys = Object.keys(staticData.sessions);\nif (keys.length > 200) {\n  keys.sort(\n    (a, b) =>\n      (staticData.sessions[a].updatedAt || 0) -\n      (staticData.sessions[b].updatedAt || 0)\n  );\n  for (const k of keys.slice(0, keys.length - 200)) delete staticData.sessions[k];\n}\n\nreturn [\n  {\n    json: {\n      ok: true,\n      sessionId: ctx.sessionId,\n      action,\n      target,\n      openLink: intent.openLink === true,\n      openExternal: intent.openExternal === true,\n      url: intent.url ? String(intent.url) : \"\",\n      reply,\n      spoken: reply,\n      extractedFields: intent.extractedFields || {},\n      fillMode: intent.fillMode ?? null,\n      endSession: intent.endSession === true,\n      heardAs: intent.heardAs ? String(intent.heardAs) : \"\",\n      remember: intent.remember || {},\n      via,\n      payload: {\n        openLink: intent.openLink === true,\n        openExternal: intent.openExternal === true,\n        url: intent.url || undefined,\n        click: true,\n        fields: intent.extractedFields || undefined,\n        heardAs: intent.heardAs || undefined,\n        remember: intent.remember || undefined,\n      },\n    },\n  },\n];\n"
+      },
+      "id": "fmt-1",
+      "name": "Formatear respuesta",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        840,
         0
       ]
     },
@@ -42,7 +173,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
       "position": [
-        560,
+        1120,
         0
       ]
     }
@@ -52,14 +183,36 @@
       "main": [
         [
           {
-            "node": "Agente Gemini",
+            "node": "Preparar contexto",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Agente Gemini": {
+    "Preparar contexto": {
+      "main": [
+        [
+          {
+            "node": "Agente DEMO Agricultura",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agente DEMO Agricultura": {
+      "main": [
+        [
+          {
+            "node": "Formatear respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatear respuesta": {
       "main": [
         [
           {
@@ -69,14 +222,69 @@
           }
         ]
       ]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Agente DEMO Agricultura",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Memoria sesión": {
+      "ai_memory": [
+        [
+          {
+            "node": "Agente DEMO Agricultura",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parser JSON intent": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Agente DEMO Agricultura",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool buscar sección": {
+      "ai_tool": [
+        [
+          {
+            "node": "Agente DEMO Agricultura",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Parser Fix": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Parser JSON intent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1"
   },
-  "active": true,
+  "active": false,
   "meta": {
-    "templateCredsSetupCompleted": true
+    "templateCredsSetupCompleted": false
   },
   "tags": []
 }

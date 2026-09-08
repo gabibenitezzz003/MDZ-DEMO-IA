@@ -1,10 +1,7 @@
 import { withTimeout } from "@/lib/async-timeout";
+import { buildBrainUserPrompt, type BrainContextInput } from "@/lib/brain-context";
 import { buildAgentSystemPrompt } from "@/lib/agent-prompt";
 import type { AssistantIntent } from "@/lib/demo-assistant";
-import {
-  formatPageContext,
-  type ClientPageContext,
-} from "@/lib/page-context";
 import type { AgentAction } from "@/lib/types";
 
 export type ChatTurn = { role: "user" | "assistant"; text: string };
@@ -37,8 +34,16 @@ const MODELS = [
   ),
 ].slice(0, 2);
 
+function isGemini2Family(model: string) {
+  return /^gemini-2(\.|-)/.test(model);
+}
+
 function isGemini3Family(model: string) {
   return /^gemini-3(\.|-)/.test(model);
+}
+
+function supportsJsonMode(model: string) {
+  return isGemini2Family(model) || isGemini3Family(model);
 }
 
 const STRING_FIELD = { type: "string" };
@@ -161,7 +166,7 @@ async function callGemini(
   repair = false
 ): Promise<string | null> {
   const contents = [
-    ...history.slice(-8).map((turn) => ({
+    ...history.slice(-20).map((turn) => ({
       role: turn.role === "assistant" ? "model" : "user",
       parts: [{ text: turn.text }],
     })),
@@ -178,7 +183,7 @@ async function callGemini(
   ];
 
   const controller = new AbortController();
-  const kill = setTimeout(() => controller.abort(), 4_000);
+  const kill = setTimeout(() => controller.abort(), 25_000);
   let res: Response;
   try {
     res = await fetch(
@@ -193,16 +198,18 @@ async function callGemini(
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: buildAgentSystemPrompt() }] },
           contents,
-          generationConfig: isGemini3Family(model)
+          generationConfig: supportsJsonMode(model)
             ? {
-                maxOutputTokens: repair ? 512 : 420,
+                // Los modelos 3.x son de razonamiento: necesitan espacio de
+                // salida para pensar antes de emitir el JSON.
+                maxOutputTokens: 2_500,
                 responseMimeType: "application/json",
                 responseSchema: RESPONSE_SCHEMA,
               }
             : {
                 temperature: repair ? 0.2 : 0.55,
                 topP: 0.9,
-                maxOutputTokens: 360,
+                maxOutputTokens: 2_500,
                 responseMimeType: "application/json",
                 responseSchema: RESPONSE_SCHEMA,
               },
@@ -225,47 +232,28 @@ async function callGemini(
   const json = (await res.json()) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
   };
-  return json.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+  const raw = json.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+  if (raw) {
+    console.log("[gemini raw]", model, raw.slice(0, 400));
+  } else {
+    console.log("[gemini raw empty]", JSON.stringify(json).slice(0, 400));
+  }
+  return raw;
 }
 
-export async function interpretWithGemini(input: {
-  text: string;
-  originalText: string;
-  history: ChatTurn[];
-  lastSectionId?: string;
-  pageContext?: ClientPageContext | null;
-  pendingFields?: Record<string, string>;
-  rutMode?: string;
-  facts?: Record<string, string>;
-}): Promise<AssistantIntent | null> {
+export async function interpretWithGemini(
+  input: BrainContextInput
+): Promise<AssistantIntent | null> {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) return null;
 
-  const pending = Object.keys(input.pendingFields || {}).length
-    ? JSON.stringify(input.pendingFields)
-    : "{}";
-  const facts = Object.keys(input.facts || {}).length
-    ? JSON.stringify(input.facts)
-    : "{}";
-
-  const userPrompt = [
-    `Última sección visitada: ${input.lastSectionId || "ninguna"}.`,
-    `CONTEXTO DE PÁGINA: ${formatPageContext(input.pageContext)}.`,
-    `RUT mode=${input.rutMode || "idle"} | campos pendientes=${pending}.`,
-    `MEMORIA DE SESIÓN (hechos): ${facts}.`,
-    `Texto original del dictado: "${input.originalText}".`,
-    `Texto corregido (si cambió, priorizalo): "${input.text}".`,
-    "PRIORIDAD: respondé exactamente a lo que preguntó. Saludo suelto (hola/hola cómo estás/buenas) → describe, sin target, sin navegar, sin RUT. Mic check → describe, sin navegar.",
-    "Si pide cultivo/herramienta/recurso: navigate + openLink=true + URL oficial, y explicá qué hay en esa página. Tono cercano argentino. No repitas la misma coletilla.",
-    "STT: root/ruth/rod = RUT solo si piden el registro, nunca si saludan. abajo = ajo. No respondas solo saludo si el mensaje incluye un pedido concreto.",
-    "No seas seco ni rígido. Una respuesta útil y humana.",
-  ].join("\n");
+  const userPrompt = buildBrainUserPrompt(input);
 
   for (const model of MODELS) {
     try {
       let raw = await withTimeout(
         callGemini(apiKey, model, userPrompt, input.history),
-        3_200,
+        25_000,
         null
       );
       if (!raw) continue;
@@ -273,7 +261,7 @@ export async function interpretWithGemini(input: {
       if (!intent) {
         raw = await withTimeout(
           callGemini(apiKey, model, userPrompt, input.history, true),
-          5_000,
+          20_000,
           null
         );
         if (!raw) continue;

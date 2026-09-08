@@ -16,8 +16,8 @@ function markOpened(url: string) {
  * Acá vivía primeOfficialTab(): abría un about:blank en el mismo tick del click
  * para reservar la pestaña antes de que el bloqueador de popups pudiera
  * impedirlo. El costo era peor que el problema — aparecía una pestaña en blanco
- * cada vez que alguien tocaba "Demo 3 min" o un chip, aunque el recorrido no
- * terminara saliendo al sitio oficial nunca.
+ * cada vez que alguien tocaba "Demo 3 min", el micrófono o un chip, aunque el
+ * recorrido no terminara saliendo al sitio oficial nunca.
  *
  * Se eliminó en vez de sólo dejar de llamarla: ya había vuelto una vez, porque
  * quitar una de las tres llamadas dejó las otras dos vivas. Sin la función, no
@@ -69,6 +69,20 @@ export function navigateOfficialTab(url: string): boolean {
 /** Call from a real click handler (toast / tour choice) — most reliable. */
 export function openOfficialFromUserGesture(url: string): boolean {
   if (typeof window === "undefined" || !url) return false;
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    markOpened(url);
+    return true;
+  } catch {
+    // fall through
+  }
   try {
     const w = window.open(url, "_blank", "noopener,noreferrer");
     // Algunos navegadores devuelven null por noopener aunque abren la pestaña.

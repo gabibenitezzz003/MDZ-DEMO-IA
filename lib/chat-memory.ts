@@ -133,6 +133,12 @@ export function setLastSection(sessionId: string, sectionId: string) {
   });
 }
 
+export function peekPreviousSection(sessionId: string): string | undefined {
+  const current = getMemory(sessionId);
+  const history = current.sectionHistory ?? [];
+  return history[history.length - 1];
+}
+
 export function popPreviousSection(sessionId: string): string | undefined {
   const current = getMemory(sessionId);
   const history = [...(current.sectionHistory ?? [])];

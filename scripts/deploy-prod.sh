@@ -130,12 +130,12 @@ paso "Verificación"
 sleep 5
 $DC ps
 for intento in 1 2 3 4 5 6; do
-  CODIGO=$(curl -s -o /dev/null -w '%{http_code}' -m 5 http://127.0.0.1:3000/ 2>/dev/null)
+  CODIGO=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "http://127.0.0.1:$PUERTO/" 2>/dev/null)
   [ "$CODIGO" != "000" ] && [ -n "$CODIGO" ] && break
   sleep 3
 done
 if [ "${CODIGO:-000}" != "000" ] && [ -n "${CODIGO:-}" ]; then
-  verde "✓ responde en 127.0.0.1:3000 → HTTP $CODIGO"
+  verde "✓ responde en 127.0.0.1:$PUERTO → HTTP $CODIGO"
 else
   rojo "✗ no responde. Mirá los logs:  $DC logs --tail 50"
   exit 1

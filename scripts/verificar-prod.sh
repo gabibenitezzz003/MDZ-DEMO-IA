@@ -53,7 +53,7 @@ fi
 echo
 echo "═══ proceso y puerto ═══"
 pgrep -af "next|node.*server" 2>/dev/null | head -5 || echo "(sin proceso next/node)"
-(ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null) | grep -E ':(3000|5620)' || echo "(nada escuchando en 3000/5620)"
+(ss -ltnp 2>/dev/null || netstat -ltnp 2>/dev/null) | grep -E ':(3000|3100|5620)' || echo "(nada escuchando en 3000/3100/5620)"
 
 echo
 echo "═══ pm2 / systemd / docker ═══"
@@ -69,7 +69,7 @@ done
 
 echo
 echo "═══ responde? ═══"
-for p in 3000 5620; do
+for p in 3100 3000 5620; do
   code=$(curl -s -o /dev/null -w '%{http_code}' -m 5 "http://localhost:$p/" 2>/dev/null)
   [[ -n "$code" && "$code" != "000" ]] && echo "  localhost:$p → HTTP $code"
 done

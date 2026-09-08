@@ -34,7 +34,8 @@ describe("OpenWA hybrid RUT workflow", () => {
     const source = String(getNode("Normalizar entrada").parameters.jsCode);
     expect(source).toContain("isImage");
     expect(source).toContain("isDocument");
-    expect(source).toContain("if (!isText || botPrefix.test(body)) return []");
+    expect(source).toContain("botEcho");
+    expect(source).toContain("if (!isText || botEcho) return []");
   });
 
   it("keeps deterministic text when the conversational layer fails", () => {

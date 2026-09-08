@@ -4,15 +4,15 @@ import {
   type ConversationMode,
 } from "@/lib/local-intent-first";
 import { findBestSections, officialUrlFor, wantsOpenLink } from "@/lib/page-knowledge";
-import { buildExplainReply, buildSectionGuide } from "@/lib/section-guide";
+import { buildSectionGuide } from "@/lib/section-guide";
+import { wantsAnyExplain } from "@/lib/page-question";
 import {
-  wantsAnyExplain,
-  wantsExplainFollowUp,
-  resolveExplainSectionId,
-} from "@/lib/page-question";
+  wantsRutDemoWizard,
+  wantsRutWhatsAppHandoff,
+} from "@/lib/whatsapp-rut";
 
 const NAVIGATE_VERBS =
-  /(llevame|lleveme|mostrame|muestrame|muestreme|mandame|mandar|pasame|ir a|quiero ver|anda a|abrime|abri |abre |redirigi|tirame a|sacame a)/;
+  /(llevame|lleveme|llevar|mostrar|mostrame|muestrame|muestreme|mandame|mandar|pasame|ir a|quiero ver|anda a|abrime|abri |abre |redirigi|tirame a|sacame a|parte de|me podrias|me podes|me pudieras|podrias llevar|podes llevar)/;
 
 /** Resuelve pedidos sobre cualquier sección del catálogo sin llamar al LLM. */
 export function resolveCatalogIntent(
@@ -26,108 +26,88 @@ export function resolveCatalogIntent(
     namedScore?: number;
   }
 ): AssistantIntent | null {
+  if (
+    wantsRutWhatsAppHandoff(raw) ||
+    wantsRutWhatsAppHandoff(text) ||
+    wantsRutDemoWizard(raw) ||
+    wantsRutDemoWizard(text)
+  ) {
+    return null;
+  }
+
   const mode = classifyConversationMode(raw);
   const openLink = wantsOpenLink(raw);
-  const norm = text
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "");
 
+  // Explicaciones y preguntas abiertas → cerebro (Gemini/n8n), no plantillas locales.
   if (wantsAnyExplain(raw)) {
-    const sectionId = resolveExplainSectionId(raw, {
-      contextSectionId: opts.contextSectionId,
-      lastSectionId: opts.lastSectionId,
-      namedSectionId: opts.namedSectionId,
-      namesSection: opts.namesSection,
-    });
-    if (sectionId) {
-      return {
-        action: "describe",
-        target: sectionId,
-        understood: true,
-        useGuide: false,
-        payload: { openLink: false, click: true },
-        reply: buildExplainReply(sectionId),
-      };
-    }
+    return null;
   }
 
   const hits = findBestSections(text, 3);
   const best = hits[0];
   if (!best) return null;
 
+  const norm = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "");
+
   const strongName =
     opts.namesSection &&
     opts.namedSectionId &&
-    (opts.namedScore ?? 0) >= 7 &&
+    (opts.namedScore ?? 0) >= 8 &&
     best.id === opts.namedSectionId;
 
+  const questionLike =
+    mode === "ask" ||
+    mode === "explain" ||
+    /\b(que|cual|como|para que|donde|por que|sirve|significa)\b/.test(norm);
+
+  // Solo navegaciones directas y muy claras se resuelven por catálogo.
+  // Preguntas y explicaciones pasan al modelo salvo pedido explícito de ir/mostrar.
   const scoreOk =
-    strongName ||
-    best.score >= (mode === "navigate" ? 6 : 5) ||
-    (best.score >= 4 && NAVIGATE_VERBS.test(norm));
+    !questionLike &&
+    (strongName ||
+      best.score >= 8 ||
+      (mode === "navigate" && best.score >= 5 && NAVIGATE_VERBS.test(norm)));
 
   if (!scoreOk) return null;
 
-  if (mode === "ask" || mode === "explain") {
-    if (best.id === "odk-collect" && /qr|odk|collect/.test(norm)) {
-      const guide = buildSectionGuide(best.id);
-      return {
-        action: "navigate",
-        target: best.id,
-        understood: true,
-        useGuide: false,
-        payload: { openLink: false, click: true },
-        reply:
-          guide?.spoken ??
-          "El QR de ODK es para ingeniería: Collect, formularios y tablero técnico.",
-      };
-    }
+  const guide = buildSectionGuide(best.id);
+  const spoken =
+    guide?.spoken ??
+    best.spoken ??
+    `Muy bien, te llevo a ${best.title}.`;
+  if (openLink) {
+    const url = best.externalUrl || officialUrlFor(best.id);
     return {
-      action: "describe",
-      target: best.id,
-      understood: true,
-      useGuide: false,
-      payload: { openLink: false, click: true },
-      reply: buildExplainReply(best.id),
-    };
-  }
-
-  if (mode === "navigate" || mode === "command" || NAVIGATE_VERBS.test(norm)) {
-    const guide = buildSectionGuide(best.id);
-    const spoken =
-      guide?.spoken ??
-      best.spoken ??
-      `Dale, te llevo a ${best.title}.`;
-    return {
-      action: "navigate",
-      target: best.id,
+      action: "open_external",
+      target: String(url),
       understood: true,
       useGuide: false,
       payload: {
-        openLink,
+        sectionId: best.id,
+        url: String(url),
+        openLink: true,
+        redirect: true,
         click: true,
-        url: best.externalUrl || officialUrlFor(best.id),
-        related: hits.slice(1).map((h) => h.title),
       },
-      reply: openLink
-        ? `${spoken} Te abrí el recurso oficial en otra pestaña; yo sigo acá.`
-        : `${spoken} Si querés el enlace oficial, decime «abrime el sitio oficial».`,
+      reply: `${spoken} Te abrí el recurso oficial en otra pestaña; yo sigo acá.`,
     };
   }
-
-  if (wantsExplainFollowUp(raw) && opts.lastSectionId) {
-    return {
-      action: "describe",
-      target: opts.lastSectionId,
-      understood: true,
-      useGuide: false,
-      payload: { openLink: false, click: true },
-      reply: buildExplainReply(opts.lastSectionId, { repeat: true }),
-    };
-  }
-
-  return null;
+  return {
+    action: "navigate",
+    target: best.id,
+    understood: true,
+    useGuide: false,
+    payload: {
+      openLink,
+      click: true,
+      url: best.externalUrl || officialUrlFor(best.id),
+      related: hits.slice(1).map((h) => h.title),
+    },
+    reply: `${spoken} Si querés el enlace oficial, decime «abrime el sitio oficial».`,
+  };
 }
 
 export function shouldSkipBrain(mode: ConversationMode, score: number): boolean {

@@ -27,3 +27,6 @@ n8n/configurar-openwa.sh
 n8n/build-agente-campo.mjs
 lib/conocimiento-campo.test.ts
 lib/agente-campo-workflow.test.ts
+
+# Documentos internos de arquitectura (no van al repo)
+docs/v2.1/

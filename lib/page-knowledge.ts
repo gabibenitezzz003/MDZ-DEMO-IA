@@ -82,7 +82,14 @@ const EXTRA_ALIASES: Record<string, string[]> = {
     "visita por whatsapp",
     "formulario por chat",
   ],
-  "manejo-hidrico": ["hidrico", "agua", "riego", "manejo hidrico"],
+  "manejo-hidrico": [
+    "manejo hidrico",
+    "manejo hídrico",
+    "manejo dirico",
+    "manejo idrico",
+    "hidrico",
+    "hídrico",
+  ],
   "economia-regional": ["economia", "economia regional"],
   fruticultura: ["fruticultura", "fruta", "frutales"],
   horticultura: ["horticultura", "hortalizas"],
@@ -151,8 +158,8 @@ export function findBestSections(raw: string, limit = 5): KnowledgeHit[] {
       score,
       kind: "section",
       spoken: summary
-        ? `Dale, te llevo a ${section.title}... ${summary}`
-        : `Dale, te llevo a ${section.title}.`,
+        ? `Muy bien, te llevo a ${section.title}... ${summary}`
+        : `Muy bien, te llevo a ${section.title}.`,
     });
   }
 
@@ -269,7 +276,7 @@ export function answerFact(raw: string): KnowledgeHit | null {
 
 export function wantsOpenLink(raw: string) {
   const text = normalize(raw);
-  return /(abri|abrir|abrime|abre|link|enlace|oficial|sia|nueva pestana|otra pestana)/.test(
+  return /(\babri(me|lo|melo)?\b|\babrir\b|\babre(lo|melo)?\b|\blink\b|\benlace\b|\bsitio oficial\b|\brecurso oficial\b|\bel recurso\b|\bnueva pestaña\b|\botra pestaña\b|\bnueva pestana\b|\botra pestana\b|\bsia\b)/.test(
     text
   );
 }

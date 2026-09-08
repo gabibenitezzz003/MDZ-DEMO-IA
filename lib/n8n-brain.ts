@@ -92,7 +92,7 @@ export async function interpretWithN8n(input: {
   if (!webhook) return null;
 
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 4_000);
+  const timer = setTimeout(() => controller.abort(), 32_000);
   try {
     const res = await fetch(webhook, {
       method: "POST",
@@ -110,6 +110,7 @@ export async function interpretWithN8n(input: {
         rutMode: input.rutMode || "idle",
         facts: input.facts || {},
         model: process.env.GEMINI_MODEL?.trim() || "gemini-3.6-flash",
+        geminiApiKey: process.env.GEMINI_API_KEY?.trim() || undefined,
       }),
     });
     if (!res.ok) return null;
@@ -124,8 +125,8 @@ export async function interpretWithN8n(input: {
 }
 
 /**
- * Preferimos Gemini/local con timeout duro.
- * n8n solo si Gemini falla — evita “gana el primero” con respuestas incorrectas.
+ * Con USE_N8N_AS_BRAIN=true el webhook n8n va primero (memoria + mapa en el workflow).
+ * Si n8n no responde, cae a Gemini local.
  */
 export async function interpretFast(input: {
   sessionId: string;
@@ -143,9 +144,10 @@ export async function interpretFast(input: {
     process.env.USE_N8N_AS_BRAIN === "true" &&
     Boolean(process.env.N8N_WEBHOOK_URL?.trim());
 
-  const local = await withTimeout(input.local(), 2_800, null);
-  if (local) return local;
+  if (useN8n) {
+    const remote = await withTimeout(interpretWithN8n(input), 32_000, null);
+    if (remote) return remote;
+  }
 
-  if (!useN8n) return null;
-  return withTimeout(interpretWithN8n(input), 2_000, null);
+  return withTimeout(input.local(), 45_000, null);
 }

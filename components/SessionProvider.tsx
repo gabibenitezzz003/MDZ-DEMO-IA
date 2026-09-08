@@ -43,6 +43,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       try {
         const response = await fetch("/api/agent/session", {
           method: "POST",
+          credentials: "same-origin",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId: candidate }),
         });

@@ -15,19 +15,19 @@ export function askedHowAreYou(raw: string) {
 }
 
 const HOW_ARE_YOU = [
-  "Bien, gracias. ¿Y vos? Decime en qué te ayudo.",
-  "Todo bien por acá. ¿Qué necesitás?",
-  "Bien, acá andamos. Contame qué estás buscando.",
+  "Bien, gracias. ¿En qué puedo ayudarte?",
+  "Todo bien. ¿Qué necesitás?",
+  "Bien, gracias por preguntar. Contame qué estás buscando.",
 ];
 
 const HELLO = [
-  "Hola, ¿cómo andás? Decime en qué te ayudo.",
+  "Hola, ¿cómo estás? Decime en qué puedo ayudarte.",
   "Buenas. ¿Qué necesitás?",
-  "Hola. Estoy acá, pedime lo que quieras.",
+  "Hola. Estoy para asistirte, pedime lo que necesites.",
 ];
 
 const ENGINEERING_HOW = [
-  "Bien, acá andamos. Estás en ingeniería: Collect, formularios y el tablero. ¿Por dónde empezamos?",
+  "Bien, gracias. Estás en ingeniería: Collect, formularios y el tablero. ¿Por dónde empezamos?",
   "Todo bien. Esta es la vista técnica. ¿Querés el QR, un formulario o que te recorra todo?",
 ];
 

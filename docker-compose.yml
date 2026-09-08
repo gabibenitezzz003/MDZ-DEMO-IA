@@ -11,8 +11,8 @@ services:
       - .env.production
     environment:
       SPEACHES_URL: ${SPEACHES_DOCKER_URL:-http://host.docker.internal:8771}
-      N8N_WEBHOOK_URL: ${N8N_DOCKER_WEBHOOK_URL:-http://host.docker.internal:5678/webhook/demo-agricultura}
-      N8N_BASE_URL: ${N8N_DOCKER_BASE_URL:-http://host.docker.internal:5678}
+      N8N_WEBHOOK_URL: ${N8N_DOCKER_WEBHOOK_URL:-https://n8n.followlsn.com/webhook/demo-agricultura}
+      N8N_BASE_URL: ${N8N_DOCKER_BASE_URL:-https://n8n.followlsn.com}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:

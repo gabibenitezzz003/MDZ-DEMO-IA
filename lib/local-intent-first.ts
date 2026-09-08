@@ -39,30 +39,27 @@ function normalizeIntentText(raw: string) {
 export function classifyConversationMode(raw: string): ConversationMode {
   const text = normalizeIntentText(raw);
   if (wantsRutWhatsAppHandoff(raw)) return "register";
-  if (
-    /(llevame|lleveme|mostrame|muestrame|muestreme|anda a|ir a|abrime|abri |abre |redirigi|quiero ver|mandame|manda me|mandar a|pasame a|tirame a|sacame a)/.test(
+
+  const isExplain = /explic|contame|que es|para que/.test(text);
+  if (isExplain) return "explain";
+
+  const isNavigate =
+    /(llevame|lleveme|mostrame|muestrame|muestreme|anda a|ir a|abrime|abri |abre |redirigi|quiero ver|mandame|manda me|mandar a|pasame a|tirame a|sacame a)\b/.test(
       text
-    )
-  ) {
-    return "navigate";
-  }
+    ) ||
+    /\b(podria?s?|podes|pudieras)\b.*\b(llevar|mostrar|mandar|pasar|ir|abrir|ver)\b/.test(
+      text
+    ) ||
+    /\b(me podria?s?|me podes|me pudieras)\b/.test(text);
+  if (isNavigate) return "navigate";
+
   if (
     /(^|\s)(que|cual|como|cuando|donde|por que|para que|quien)\b/.test(text) ||
     raw.includes("?")
   ) {
-    return /explic|contame|que es|para que/.test(text) ? "explain" : "ask";
+    return "ask";
   }
   return "command";
-}
-
-function withoutNavigationClaim(reply: string) {
-  return reply
-    .replace(
-      /\s*Te abr[ií] (?:el recurso|el sitio|la p[aá]gina) oficial en otra pestaña;? yo sigo ac[aá]\.?/gi,
-      ""
-    )
-    .replace(/\s*Te (?:llevo|llev[eé]) (?:ahora|ah[ií])\.?/gi, "")
-    .trim();
 }
 
 /** Seguimiento corto tras hablar de RUT: "Rod" → RUT. */
@@ -97,9 +94,9 @@ export function resolveRutFollowUp(
 }
 
 /**
- * Atajo ANTES de consultar al modelo: casos de alta confianza donde la
- * respuesta ya se conoce y el viaje al LLM solo agregaría latencia (botones
- * rápidos de la demo, comandos del navegador, secciones nombradas).
+ * Atajo ANTES de consultar al modelo: casos de alta confianza.
+ * Ahora es conservador: solo se usa cuando la intención es obvia y local.
+ * Todo lo demás pasa a Gemini para mantener hilo y contexto.
  */
 export function shouldPreferLocalRules(
   text: string,
@@ -110,32 +107,30 @@ export function shouldPreferLocalRules(
   if (wantsRutWhatsAppHandoff(text) || wantsRutWhatsAppHandoff(raw)) return true;
   if (wantsRutNavigate(text) || wantsRutNavigate(raw)) return true;
 
+  // Preguntas y explicaciones complejas las dejamos para Gemini.
+  const mode = classifyConversationMode(raw);
+  if (mode === "ask" || mode === "explain") return false;
+
+  // Solo navegaciones muy explícitas y con score alto.
   const hits = findBestSections(text, 1);
   const best = hits[0];
   if (
     best &&
-    best.score >= 4 &&
-    intent.understood !== false &&
+    best.score >= 7 &&
+    intent.understood === true &&
     intent.target === best.id &&
-    ["navigate", "highlight", "describe"].includes(intent.action)
-  ) {
-    return true;
-  }
-  if (
-    best &&
-    best.score >= 4 &&
-    /(llevame|lleveme|mostrame|muestrame|quiero ver|ir a|parte de|seccion|zona de|mandame|mandar a|pasame a)/.test(
-      text
-    )
+    ["navigate", "highlight"].includes(intent.action)
   ) {
     return true;
   }
 
+  // Comando directo de navegación: "llevame a X".
   if (
-    /hola|buenas|como estas|como andas/.test(text) &&
-    !wantsSimpleGreeting(text) &&
-    intent.action === "describe" &&
-    /te ayudo|asistente de agricultura|que necesit/.test(intent.reply)
+    best &&
+    best.score >= 6 &&
+    /(llevame|lleveme|mostrame|muestrame|quiero ver|ir a|mandame|pasame a|tirame a)/.test(
+      text
+    )
   ) {
     return true;
   }
@@ -145,16 +140,11 @@ export function shouldPreferLocalRules(
 
 /**
  * Cuándo DESCARTAR una respuesta que el modelo ya produjo.
- *
- * Mucho más corto que el atajo previo, y a propósito: acá el modelo ya leyó el
- * historial y el contexto de página, así que pisarlo por coincidencia de
- * palabras es casi siempre un error. Solo sobreviven los casos donde el texto
- * no admite otra lectura posible.
+ * Solo para casos inequívocos: saludo, mic check, eco de voz.
  */
 export function shouldOverrideModel(text: string, raw: string): boolean {
   if (wantsSimpleGreeting(text)) return true;
   if (wantsListeningCheck(text)) return true;
-  // Eco de voz de una sola palabra ("rod", "ruth"): no hay nada que interpretar.
   if (isRutSttHomophone(text) || isRutSttHomophone(raw)) return true;
   return false;
 }
@@ -214,28 +204,32 @@ export function resolveLocalIntent(
       understood: true,
       payload: { openLink: false, click: true },
       reply:
-        "Dale, te llevo a la sección del RUT. Ahí ves de qué se trata el Registro Único de Tierras. Si querés registrarte, te abro WhatsApp con el agente.",
+        "Muy bien, te llevo a la sección del RUT. Ahí ves de qué se trata el Registro Único de Tierras. Si querés registrarte, decime y te abro WhatsApp.",
     };
   }
 
   const rules = interpretUtterance(text);
+
+  // Si interpretUtterance no entendió, no forzamos una respuesta local.
+  if (rules.understood === false) return null;
+
   const mode = classifyConversationMode(raw);
+
+  // Preguntas y explicaciones que el catálogo resolvería como una navegación
+  // simple las dejamos para Gemini, que tiene historial y puede dar una
+  // respuesta contextual y completa. Las descripciones concretas (facts, ayuda)
+  // siguen resolviéndose localmente.
   if (
     (mode === "ask" || mode === "explain") &&
     rules.target &&
     ["navigate", "highlight"].includes(rules.action)
   ) {
-    return {
-      ...rules,
-      action: "describe",
-      reply: withoutNavigationClaim(rules.reply),
-      payload: { ...(rules.payload ?? {}), openLink: false, click: true },
-    };
+    return null;
   }
+
   if (shouldPreferLocalRules(text, raw, rules)) return rules;
-  if (rules.understood !== false && rules.action === "describe") return rules;
   if (
-    rules.understood !== false &&
+    rules.understood === true &&
     ["go_home", "go_back", "go_forward", "scroll"].includes(rules.action)
   ) {
     return rules;

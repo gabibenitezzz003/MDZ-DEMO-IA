@@ -225,7 +225,7 @@ export function VoiceAssistantBridge() {
           }
           goToSection(target, openLink, url);
           if (openLink && url && !findSectionEl(target)) {
-            openUrl(url, true, { sectionId: target });
+            openUrl(url, true, { sectionId: target, forceTab: true });
           }
           break;
         }

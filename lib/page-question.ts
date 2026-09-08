@@ -19,7 +19,36 @@ export function wantsPageLocation(raw: string) {
 
 export function wantsExplainCurrentPage(raw: string) {
   const text = normalizePageQuestion(raw);
-  return /(explicame (esto|esta|aca|aqui)|que es (esto|esta seccion)|contame (de )?esto|que hay aca|que hay aqui)/.test(
+  return /(explicame (esto|esta|aca|aqui|la pagina|esta pagina)|que es (esto|esta seccion|esta pagina)|contame (de )?esto|que hay aca|que hay aqui)/.test(
+    text
+  );
+}
+
+/** Referencia para tests: preguntas abiertas sobre la demo (las resuelve Gemini, no reglas locales). */
+export function wantsPageCapabilities(raw: string) {
+  const text = normalizePageQuestion(raw);
+  return (
+    /\b(que puedo hacer|que se puede hacer|que hay para hacer|que opciones hay|que funciones tiene)\b/.test(
+      text
+    ) ||
+    /\b(para que sirve|que ofrece|que hace)\b.{0,28}\b(esta pagina|la pagina|esta demo|el sitio|aca|aqui|portal)\b/.test(
+      text
+    ) ||
+    /\b(explic\w*|decime|contame)\b.{0,36}\b(que puedo|que se puede)\b/.test(
+      text
+    ) ||
+    /\b(como funciona|como uso)\b.{0,24}\b(esta pagina|la demo|el asistente|esta web)\b/.test(
+      text
+    ) ||
+    /\b(en que me podes ayudar|en que me puedes ayudar|como me ayudas)\b/.test(
+      text
+    )
+  );
+}
+
+export function wantsPreviousSection(raw: string) {
+  const text = normalizePageQuestion(raw);
+  return /\b(anterior|previo|tema anterior|seccion anterior|la anterior|el anterior|volve(r)?\s+a\s+(eso|lo\s+anterior|la\s+anterior))\b/.test(
     text
   );
 }
@@ -33,7 +62,11 @@ export function wantsExplainFollowUp(raw: string) {
     ) ||
     /\b(que hace eso|para que es eso|y eso que es|explicame mas|contame mas)\b/.test(
       text
-    )
+    ) ||
+    /\b(si|dale|ok|vale|claro|por favor|si por favor)\b.*\b(explic\w*|contame|decime)\b/.test(
+      text
+    ) ||
+    /\b(que me expliques|me lo expliques|seguir explicando)\b/.test(text)
   );
 }
 

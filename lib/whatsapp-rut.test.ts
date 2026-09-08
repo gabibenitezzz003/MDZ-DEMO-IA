@@ -13,6 +13,12 @@ describe("whatsapp rut intent", () => {
     expect(wantsRutWhatsAppHandoff("Quiero el RUT por WhatsApp")).toBe(true);
     expect(wantsRutWhatsAppHandoff("mostrame el RUT")).toBe(true);
     expect(wantsRutWhatsAppHandoff("quiero registrarme")).toBe(true);
+    expect(
+      wantsRutWhatsAppHandoff("abrime el whatsapp web para el root")
+    ).toBe(true);
+    expect(
+      wantsRutWhatsAppHandoff("abrir el recurso del root por whatsapp")
+    ).toBe(true);
     expect(wantsRutWhatsAppHandoff("RUT")).toBe(false);
     expect(wantsRutWhatsAppHandoff("el RUT")).toBe(false);
   });

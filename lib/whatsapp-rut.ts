@@ -28,11 +28,19 @@ export function getWhatsAppRutPrefill(): string {
   );
 }
 
-export function buildWhatsAppRutUrl(prefill?: string): string | null {
+export function buildWhatsAppRutUrl(
+  prefill?: string,
+  opts?: { web?: boolean }
+): string | null {
   const number = getWhatsAppRutNumber();
   if (!number) return null;
   const text = (prefill || getWhatsAppRutPrefill()).trim();
-  return `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
+  const encoded = encodeURIComponent(text);
+  const useWeb = opts?.web !== false;
+  if (useWeb) {
+    return `https://web.whatsapp.com/send?phone=${number}&text=${encoded}`;
+  }
+  return `https://wa.me/${number}?text=${encoded}`;
 }
 
 function normalize(text: string) {
@@ -82,15 +90,15 @@ export function wantsRutNavigate(raw: string) {
   if (wantsRutDemoWizard(raw)) return false;
 
   if (
-    /\b(rut|registro unico|root|ruth|rod|rued)\b/.test(t) &&
-    /(llevame|lleveme|mostrame|muestrame|muestreme|ir a|parte de|parte del|seccion|zona|donde esta|donde queda|abrir|ver el|ver la|mostrar)/.test(
+    /\b(rut|registro unico|root|ruth|rod|rued|ruta|rute)\b/.test(t) &&
+    /(llevame|lleveme|mostrame|muestrame|muestreme|ir a|parte de|parte del|seccion|zona|donde esta|donde queda|abrir|ver el|ver la|mostrar|llevarte|llevarme)/.test(
       t
     )
   ) {
     return true;
   }
 
-  if (/^(el )?(rut|root|ruth|rod)$/.test(t)) return true;
+  if (/^(el )?(rut|root|ruth|rod|ruta|rued)$/.test(t)) return true;
 
   return false;
 }
@@ -98,7 +106,7 @@ export function wantsRutNavigate(raw: string) {
 /** Eco corto de voz: root/ruth/rod → RUT. */
 export function isRutSttHomophone(raw: string) {
   const t = normalize(raw);
-  return /^(rod|root|ruth|rued|ru)$/.test(t);
+  return /^(rod|root|ruth|rued|ru|ruta|rueda?)$/.test(t);
 }
 
 /**
@@ -111,7 +119,8 @@ export function wantsRutWhatsAppHandoff(raw: string) {
 
   if (
     /whatsapp|wsp|wasap/.test(t) &&
-    (/\brut\b/.test(t) || /registro|inscrib|tramite/.test(t))
+    (/\b(rut|root|ruth|rod|rued|ruta)\b/.test(t) ||
+      /registro|inscrib|tramite/.test(t))
   ) {
     return true;
   }
@@ -133,8 +142,16 @@ export function wantsRutWhatsAppHandoff(raw: string) {
   }
 
   if (
-    /\b(rut|root|ruth|rod)\b/.test(t) &&
+    /\b(rut|root|ruth|rod|ruta)\b/.test(t) &&
     /(registr|inscrib|whatsapp|wsp|wasap|tramite|cargar|datos|document)/.test(t)
+  ) {
+    return true;
+  }
+
+  if (
+    /(dime|decime|pasame|mandame|dame|mostrame|muestrame).{0,24}\b(whatsapp|wsp|wasap)\b/.test(
+      t
+    )
   ) {
     return true;
   }

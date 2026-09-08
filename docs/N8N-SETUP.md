@@ -1,59 +1,87 @@
-# n8n + Gemini 2.5 Flash + GABI B (DEMO)
+# n8n + LangChain Agent — cerebro DEMO Agricultura
 
 ## Arquitectura
 
 ```
-Browser (DemoAssistant)
+Browser (VoiceAssistant)
   → POST /api/agent/chat  (Next.js)
-      → si USE_N8N_AS_BRAIN=true → N8N_WEBHOOK_URL
-           → Agente Gemini (memoria de sesión + fallback)
-      → si falla → Gemini local → reglas locales
-  → SSE /api/agent/events mueve la página
-  → ElevenLabs GABI B habla en el browser
+      → si USE_N8N_AS_BRAIN=true → N8N_WEBHOOK_URL (primero)
+      → si falla → Gemini local (lib/gemini-brain.ts)
+  → demo:agent-event mueve la página
+  → TTS (browser o ElevenLabs)
 ```
 
-El workflow **DEMO Agricultura Mendoza — web + GABI B** interpreta con **gemini-2.5-flash**, guarda memoria por `sessionId` y devuelve el mismo contrato de acciones que el cerebro local (navigate, open_rut, open_external, fill_form, etc.).
+El workflow **DEMO Agricultura Mendoza — Agente LangChain (Gemini)** usa nodos **LangChain** de n8n:
 
-## 1. DEMO local
+| Nodo | Tipo LangChain |
+|------|----------------|
+| **Agente DEMO Agricultura** | `@n8n/n8n-nodes-langchain.agent` |
+| **Gemini Chat Model** | `@n8n/n8n-nodes-langchain.lmChatGoogleGemini` |
+| **Memoria sesión** | `@n8n/n8n-nodes-langchain.memoryBufferWindow` |
+| **Parser JSON intent** | `@n8n/n8n-nodes-langchain.outputParserStructured` |
+| **Tool buscar sección** | `@n8n/n8n-nodes-langchain.toolCode` |
+
+Flujo: Webhook → Preparar contexto → **Agente LangChain** → Formatear respuesta → Responder webhook.
+
+## 1. Levantar la demo
 
 ```bash
 cd demo-agricultura
-npm run dev -- -H 127.0.0.1 -p 3000
+bash scripts/dev-local.sh
 ```
 
 `.env.local` mínimo:
 
 ```
 GEMINI_API_KEY=...
-GEMINI_MODEL=gemini-2.5-flash
-ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID=h60rOzgfLmYsntfqgGu2
-N8N_WEBHOOK_URL=http://127.0.0.1:5678/webhook/demo-agricultura
+GEMINI_MODEL=gemini-2.0-flash
 USE_N8N_AS_BRAIN=true
+N8N_WEBHOOK_URL=https://n8n.followlsn.com/webhook/demo-agricultura
 ```
 
-Next le pasa a n8n el `geminiApiKey` en el body (server-side). No hace falta exponer `$env` dentro de nodos Code de n8n.
+## 2. Importar el workflow
 
-## 2. Importar / actualizar workflow
-
-1. Abrí http://127.0.0.1:5678  
-2. Importá `n8n/demo-agricultura-asistente.json` (o reimportá sobre el workflow existente)  
-3. Activá / Publicá el workflow  
-4. URL de producción:
+1. Abrí n8n (ej. http://127.0.0.1:5678)
+2. **Workflows → Import from file** → `n8n/demo-agricultura-asistente.json`
+3. En **Gemini Chat Model** y **Gemini Parser Fix**: asigná la credencial **Google Gemini (PaLM) API** con tu `GEMINI_API_KEY`
+4. Activá el workflow
+5. URL de producción:
 
 ```
-http://127.0.0.1:5678/webhook/demo-agricultura
+https://n8n.followlsn.com/webhook/demo-agricultura
 ```
 
-Nodos:
+### Regenerar el JSON
 
-1. **Webhook DEMO** — POST `demo-agricultura`  
-2. **Agente Gemini** — memoria por sesión + Gemini 2.5 Flash + fallback robusto  
-3. **Responder webhook** — JSON al Next  
+```bash
+node n8n/sync-demo-agricultura-workflow.mjs
+```
 
-## 3. Contrato del webhook
+Editá:
+- `n8n/prompts/demo-agricultura-agent-system.txt` — system prompt del agente
+- `n8n/demo-agricultura-prepare.js` — contexto de entrada
+- `n8n/demo-agricultura-format.js` — contrato de salida + fallback
 
-Request:
+## 3. Probar con curl
+
+```bash
+curl -s -X POST https://n8n.followlsn.com/webhook/demo-agricultura \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sessionId": "test-1",
+    "text": "llevame a ciruela",
+    "originalText": "llevame a ciruela",
+    "history": [],
+    "pageContext": {"pathname":"/","sectionId":"inicio"},
+    "model": "gemini-2.0-flash"
+  }' | jq .
+```
+
+Respuesta esperada: `ok: true`, `action: "navigate"`, `target: "ciruela"`, `via: "n8n-langchain"`.
+
+## 4. Contrato del webhook
+
+**Request** (campos principales):
 
 ```json
 {
@@ -65,14 +93,14 @@ Request:
   "pageContext": {},
   "pendingFields": {},
   "rutMode": "idle",
-  "facts": {"name":"Gabriel","crop":"ciruela"},
-  "model": "gemini-2.5-flash",
-  "geminiApiKey": "(lo manda Next)",
+  "facts": {},
+  "model": "gemini-2.0-flash",
+  "geminiApiKey": "(Next lo envía; en n8n usás credencial Gemini)",
   "source": "demo-web"
 }
 ```
 
-Response (resumen):
+**Response**:
 
 ```json
 {
@@ -80,21 +108,10 @@ Response (resumen):
   "action": "navigate",
   "target": "ciruela",
   "reply": "...",
-  "spoken": "...",
-  "extractedFields": {},
-  "fillMode": null,
-  "remember": {"name":"", "crop":"", "note":""},
-  "via": "gemini-2.5-flash"
+  "via": "n8n-langchain",
+  "payload": { "click": true }
 }
 ```
-
-Si Gemini falla, el nodo responde igual con un fallback de reglas (ciruela, RUT, ODK, mapas, etc.).
-
-## 4. Memoria
-
-- Next guarda turns + facts en `lib/chat-memory.ts`  
-- n8n guarda mirror por `sessionId` en static data del workflow  
-- El agente recibe historial + hechos (nombre, cultivo, departamento, temas)  
 
 ## 5. Apagar n8n como cerebro
 
@@ -102,4 +119,4 @@ Si Gemini falla, el nodo responde igual con un fallback de reglas (ciruela, RUT,
 USE_N8N_AS_BRAIN=false
 ```
 
-La demo sigue con Gemini local + GABI B.
+La demo sigue con Gemini local en Next.js.

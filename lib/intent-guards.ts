@@ -9,10 +9,10 @@ function normalize(text: string) {
 }
 
 const GREETING_ONLY =
-  /^(hola+|holis|buen dia|buenos dias|buenas( tardes| noches)?|hey|epa|que tal|como andas|como estas|como va|que haces|todo bien|buen)$/;
+  /^(hola+|hola(\s+hola)+|holis|buenas|buen dia|buenos dias|buenas( tardes| noches)?|hey|epa|que tal|como andas|como estas|como va|que haces|todo bien|buen)$/;
 
 const GREETING_LEAD =
-  /^(hola+|holis|buenas( tardes| noches)?|buen dia|buenos dias)\b/;
+  /^(hola+|hola(\s+hola)+|holis|buenas( tardes| noches)?|buen dia|buenos dias)\b/;
 
 const GREETING_TAIL =
   /^(como estas|como andas|que tal|todo bien|que haces|como va|che|que onda|todo bien vos|como te va)$/;

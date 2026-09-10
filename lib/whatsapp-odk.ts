@@ -1,4 +1,7 @@
-import { getWhatsAppRutNumber } from "@/lib/whatsapp-rut";
+import {
+  getWhatsAppRutNumber,
+  normalizeWhatsAppNumber,
+} from "@/lib/whatsapp-rut";
 
 const DEFAULT_PREFILL =
   "Hola, estoy en campo. Quiero cargar un formulario por WhatsApp: olivo encontrado o visita técnica. No voy a rellenar Collect a mano.";
@@ -13,12 +16,19 @@ function normalize(text: string) {
     .trim();
 }
 
+export function getWhatsAppCampoNumber(): string | null {
+  return (
+    normalizeWhatsAppNumber(process.env.WHATSAPP_ODK_NUMBER?.trim()) ||
+    getWhatsAppRutNumber()
+  );
+}
+
 export function getWhatsAppCampoPrefill() {
   return process.env.WHATSAPP_ODK_TEXT?.trim() || DEFAULT_PREFILL;
 }
 
 export function buildWhatsAppCampoUrl(prefill?: string) {
-  const number = getWhatsAppRutNumber();
+  const number = getWhatsAppCampoNumber();
   if (!number) return null;
   const text = (prefill || getWhatsAppCampoPrefill()).trim();
   return `https://wa.me/${number}?text=${encodeURIComponent(text)}`;

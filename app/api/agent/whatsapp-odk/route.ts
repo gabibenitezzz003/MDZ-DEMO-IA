@@ -2,14 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { ApiSecurityError, secureApiRequest } from "@/lib/api-security";
 import {
   buildWhatsAppCampoUrl,
+  getWhatsAppCampoNumber,
   getWhatsAppCampoPrefill,
 } from "@/lib/whatsapp-odk";
-import { getWhatsAppRutNumber } from "@/lib/whatsapp-rut";
 
 export async function GET(req: NextRequest) {
   try {
     secureApiRequest(req, { requireSession: true, rateLimit: 30 });
-    const number = getWhatsAppRutNumber();
+    const number = getWhatsAppCampoNumber();
     return NextResponse.json({
       ok: true,
       configured: Boolean(number),

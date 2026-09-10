@@ -10,9 +10,12 @@ En `.env.local` y en el server `.env.production`:
 ```bash
 WHATSAPP_RUT_NUMBER=549261XXXXXXX
 WHATSAPP_RUT_TEXT=Hola, quiero registrarme en el RUT de Mendoza. Me derivaron desde la demo de Agricultura.
+WHATSAPP_ODK_NUMBER=5492613417054
+WHATSAPP_ODK_TEXT=Hola, estoy en campo. Quiero cargar un formulario por WhatsApp: olivo encontrado o visita técnica.
 ```
 
 - Solo dígitos, con código de país (Argentina = `54…`). No se compila en el bundle del cliente: la UI obtiene la URL desde `/api/agent/whatsapp-rut`.
+- Ingeniería / campo usa `WHATSAPP_ODK_NUMBER` (`/api/agent/whatsapp-odk`). Si falta, cae al número del RUT.
 - Reiniciá `npm run dev` tras cambiar `.env.local`.
 - Verificar: `curl http://127.0.0.1:3000/api/agent/whatsapp-rut` → `"configured": true`.
 
